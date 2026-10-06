@@ -214,6 +214,26 @@ a { color: var(--accent); }
 .prio li .mk { width: 20px; height: 20px; font-size: 10px; }
 .prio button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; width: 28px; height: 24px; padding: 0; font-size: 12px; }
 .prio button:disabled { opacity: .3; cursor: default; }
+.howto { border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 8px; font-size: 12px; min-width: 0; }
+.howto h3 { font-size: 11px; letter-spacing: .1em; color: var(--muted); margin: 0; font-weight: 700; }
+.stop { display: grid; gap: 3px; min-width: 0; }
+.stop .sn { font-weight: 700; font-size: 13px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.stop .sn small { font-weight: 400; color: var(--muted); font-size: 11px; }
+.deps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.deps li { display: grid; grid-template-columns: 3.4em minmax(0, 1fr); gap: 6px; }
+.deps time { font-family: var(--font-m); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--fill-tr); }
+.deps span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.deps .rt { color: var(--muted); }
+.tinfo { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.tinfo b { display: block; }
+.chipw { font-size: 10px; font-weight: 700; color: var(--panel); background: var(--warn); border-radius: 4px; padding: 0 4px; margin-left: 4px; vertical-align: 1px; }
+.lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.lines button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.lines button[aria-pressed="true"] { border-color: var(--c-top); background: color-mix(in srgb, var(--c-top) 10%, var(--panel)); }
+.lines .ln { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lines .cnt { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lines .cnt b { color: var(--fill-tr); font-size: 14px; }
+.cell.hl { stroke: var(--c-top); stroke-width: 2.4; stroke-opacity: 1; stroke-dasharray: none; }
 .filterbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; background: var(--target); border-radius: 8px; padding: 6px 10px; }
 .filterbar button { border: 0; background: transparent; color: var(--accent); font-weight: 700; font-size: 12px; }
 .search { display: flex; flex-direction: column; gap: 6px; }
@@ -461,7 +481,7 @@ if (!state.layers) state.layers = { rail: true, bus: true };
 if (state.layers.mine === undefined) state.layers.mine = true;
 function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 const curMap = () => state.maps.find(m => m.id === state.cur) || null;
-const ui = { view: "over", pref: null, cell: null, spot: null, q: "", reach: false, list: { tab: "visit", pref: "", cat: "", sort: "new" } };
+const ui = { view: "over", pref: null, cell: null, spot: null, q: "", reach: false, line: null, list: { tab: "visit", pref: "", cat: "", sort: "new" } };
 let IDX = null, PREF = {}, FEATURES = [];
 const prefData = new Map(); // 県 → { spots, lines }（読み込み済み）
 
@@ -500,17 +520,159 @@ async function loadBus(pid) {
 async function loadPref(pid) {
   if (prefData.has(pid)) return prefData.get(pid);
   const j = await fetch(`data/p/${String(pid).padStart(2, "0")}.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
-  const spots = j.spots.map(([id, name, c, lat, lon, x, top]) => {
+  const spots = j.spots.map(([id, name, c, lat, lon, x, top, refs]) => {
     const m = meshOf(lat, lon);
-    const s = { id, name, c, lat, lon, ...m, pref: pid, top: !!top };
+    const s = { id, name, c, lat, lon, ...m, pref: pid, top: !!top, refs: refs || [] };
     if (c === CAT_IDX.station) s.lines = (x || []).map(i => j.lines[i]);
     else if (x) s.near = x;
     s.reach = TRANSIT.has(c) || (x && ((x[0] && x[1] <= WALK_RAIL) || (x[2] && x[3] <= WALK_BUS)));
     return s;
   });
-  const d = { spots, byId: new Map(spots.map(s => [s.id, s])), lines: j.lines };
+  const d = { spots, byId: new Map(spots.map(s => [s.id, s])), lines: j.lines, lineIds: new Map(j.lines.map((l, i) => [l, j.lineIds?.[i] || ""])) };
   prefData.set(pid, d);
   return d;
+}
+
+/* ================= 交通（ODPT・GTFS） ================= */
+// 時刻表は BusTracker（同じ tyra0119.github.io の pj_BusTracker）が公開している GTFS のデータを読む。
+// 運行情報は ODPT を中継サーバ（https://tyra.jp/odpt/api/ 。トークンはサーバ側）から読む。どちらも取れなければ出さない
+const BT_BASE = new URL("../pj_BusTracker/", location.href).href;
+const RELAY = "https://tyra.jp/odpt/api";
+const btLink = (lat, lon) => `${BT_BASE}#map=16/${lat.toFixed(5)}/${lon.toFixed(5)}`;
+let SOURCES = null, BTIDX = null, btHol = null;
+const btBundles = new Map();
+const once = (fn) => { let p = null; return () => p ||= fn().catch(e => { p = null; throw e; }); };
+const loadSources = once(() => fetch("data/sources.json").then(r => r.json()).then(j => SOURCES = j));
+const loadBtIndex = once(() => fetch(BT_BASE + "data/index.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(j => {
+  BTIDX = { byName: new Map(), bundles: j.bundles };
+  for (const f of j.feeds) BTIDX.byName.set(`${f.org}|${f.name}`, f);
+  import(BT_BASE + "holidays.mjs").then(m => { btHol = m.holidayName; }).catch(() => {});
+  return BTIDX;
+}));
+function btBundle(k) {
+  if (!btBundles.has(k)) btBundles.set(k, fetch(BT_BASE + `data/b/${k}.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).catch(e => { btBundles.delete(k); throw e; }));
+  return btBundles.get(k);
+}
+async function btFeed(srcIdx) { // Nuritabi の提供元の番号 → BusTracker のフィード（中身）
+  const [src, ix] = await Promise.all([loadSources(), loadBtIndex()]);
+  const s = src[srcIdx]; if (!s) return null;
+  const f = ix.byName.get(`${s.org}|${s.name}`); if (!f || f.b == null) return null;
+  const bundle = await btBundle(f.b), pos = ix.bundles[f.b].ids.indexOf(f.i);
+  const raw = bundle[pos]; if (!raw) return null;
+  raw.__meta = f;
+  return raw;
+}
+const decStops = raw => raw.__pts ||= (() => { const o = []; let i = 0, a = 0, b = 0; const t = raw.stops; while (i < t.length) { for (let k = 0; k < 2; k++) { let sh = 0, r = 0, c; do { c = t.charCodeAt(i++) - 63; r |= (c & 31) << sh; sh += 5; } while (c >= 32); const d = r & 1 ? ~(r >> 1) : r >> 1; if (k) b += d; else a += d; } o.push([a / 1e5, b / 1e5]); } return o; })();
+const profDeps = (raw, pi) => (raw.__dep ||= [])[pi] ||= (() => { const [run, dwell] = raw.profs[pi], dep = [dwell ? dwell[0] : 0]; for (let k = 1; k <= run.length; k++) dep.push(dep[k - 1] + run[k - 1] + (dwell ? dwell[k] : 0)); return dep; })();
+const EPOCH = Date.UTC(2000, 0, 1);
+function jstNow() { const d = new Date(Date.now() + 9 * 3600e3); return { day: Math.floor((d - EPOCH) / 864e5), sec: d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds() }; }
+const wdOf = n => (new Date(EPOCH + n * 864e5).getUTCDay() + 6) % 7; // 0 = 月曜
+const keyOf = n => new Date(EPOCH + n * 864e5).toISOString().slice(0, 10);
+const restDay = n => { const k = keyOf(n), md = k.slice(5); return wdOf(n) === 6 || !!(btHol && btHol(k)) || md >= "12-30" || md <= "01-03"; };
+function svcMask(raw, day) { // その日に走る運行日。ダイヤの期間外なら、期間内の同じ曜日・同じ平日／土休日の日で代える（BusTracker と同じ考え方）
+  const [lo, hi] = raw.__meta?.range || [-1, -1];
+  let use = day, sub = false;
+  if (lo >= 0 && (day < lo || day > hi)) {
+    const from = day > hi ? hi : lo, step = day > hi ? -1 : 1;
+    for (let k = 0; k < 120; k++) { const d = from + step * k; if (wdOf(d) === wdOf(day) && restDay(d) === restDay(day)) { use = d; sub = true; break; } }
+  }
+  const wd = wdOf(use);
+  return { sub, mask: raw.svc.map(([s0, e0, w, add, rem]) => add.includes(use) || (s0 >= 0 && use >= s0 && use <= e0 && ((w >> wd) & 1) && !rem.includes(use))) };
+}
+async function departures(ref, near) { // ref = [提供元, 停留所名]。near = [緯度, 経度]（同じ名前の別の停留所を除く）
+  const raw = await btFeed(ref[0]); if (!raw) return null;
+  const pts = decStops(raw), idx = new Set();
+  raw.stopNames.forEach((n, k) => { if (n === ref[1] && (!near || Math.abs(pts[k][0] - near[0]) < 0.01 && Math.abs(pts[k][1] - near[1]) < 0.012)) idx.add(k); });
+  if (!idx.size) return null;
+  const { day, sec } = jstNow(), today = svcMask(raw, day), yest = svcMask(raw, day - 1);
+  const pos = raw.pats.map(p => { const o = []; p[3].forEach((si, k) => { if (k < p[3].length - 1 && idx.has(si)) o.push(k); }); return o; });
+  const out = [], T = raw.trips;
+  for (let k = 0; k < T.length; k += 4) {
+    const ps = pos[T[k]]; if (!ps.length) continue;
+    const dep = profDeps(raw, T[k + 1]);
+    for (const q of ps) {
+      const t = T[k + 3] + dep[q];
+      if (today.mask[T[k + 2]] && t >= sec && t < sec + 6 * 3600) out.push(t);
+      else if (yest.mask[T[k + 2]] && t - 86400 >= sec && t - 86400 < sec + 6 * 3600) out.push(t - 86400);
+      else continue;
+      const p = raw.pats[T[k]], rt = raw.routes[p[0]];
+      out[out.length - 1] = { t: out[out.length - 1], to: p[1], route: rt[1] || rt[0], mode: rt[4] };
+    }
+  }
+  out.sort((a, b) => a.t - b.t);
+  return { list: out.slice(0, 4), sub: today.sub, feed: raw.__meta.name, org: raw.__meta.org };
+}
+const hhmm = t => { t = Math.floor(t / 60) % 1440; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+
+// 運行情報（ODPT。1 分は使い回す）
+let TINFO = null, tinfoAt = 0, tinfoP = null;
+function trainInfo() { // 同時に呼ばれても 1 回だけ取りに行く
+  if (TINFO && Date.now() - tinfoAt < 60e3) return Promise.resolve(TINFO);
+  return tinfoP ||= fetchTrainInfo().finally(() => { tinfoP = null; });
+}
+async function fetchTrainInfo() {
+  const res = await Promise.allSettled(["main", "challenge"].map(side => fetch(`${RELAY}/${side}/v4/odpt:TrainInformation`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })));
+  const m = new Map();
+  for (const r of res) if (r.status === "fulfilled" && Array.isArray(r.value)) for (const x of r.value) {
+    const text = x["odpt:trainInformationText"]?.ja || "", rw = x["odpt:railway"];
+    if (rw && text) m.set(rw, { text, normal: /平常|通常|ダイヤ通り|遅れはありません/.test(text) && !/遅|見合|運休/.test(text.replace(/遅れはありません/, "")) });
+  }
+  if (!m.size && res.every(r => r.status === "rejected")) throw new Error("運行情報を取れませんでした");
+  TINFO = m; tinfoAt = Date.now();
+  return m;
+}
+
+// 「行き方」: 場所の最寄りの駅・バス停（または駅・バス停そのもの）と、次の便
+function stopsFor(s, d) {
+  if (TRANSIT.has(s.c)) return [{ stop: s, dist: 0 }];
+  const out = [], n = s.near;
+  const nearest = (cat, name) => d.spots.filter(x => x.c === cat && x.name === name).sort((a, b) => Math.hypot(a.lat - s.lat, a.lon - s.lon) - Math.hypot(b.lat - s.lat, b.lon - s.lon))[0];
+  if (n && n[0]) out.push({ stop: nearest(CAT_IDX.station, n[0]), name: n[0], dist: n[1], rail: true });
+  if (n && n[2]) out.push({ stop: nearest(CAT_IDX.bus, n[2]), name: n[2], dist: n[3] });
+  return out;
+}
+function howtoHtml(s) { return `<div class="howto" data-howto="${esc(s.id)}"><h3>行き方</h3><p class="note">最寄りの駅・バス停と次の便を調べています…</p></div>`; }
+async function fillHowto(el, s, d) {
+  const stops = stopsFor(s, d);
+  if (!stops.length) { el.innerHTML = `<h3>行き方</h3><p class="note">近く（駅 2km・バス停 1km 以内）に、データのある駅・バス停がありません。</p>`; return; }
+  let info = null; try { info = await trainInfo(); } catch (e) {}
+  const parts = await Promise.all(stops.map(async x => {
+    const st = x.stop, name = st?.name || x.name, walk = x.dist ? `歩いて約${Math.max(1, Math.round(x.dist / 80))}分（${x.dist}m）` : "";
+    let deps = null, err = false;
+    if (st?.refs?.length) {
+      try {
+        const rs = (await Promise.all(st.refs.slice(0, 4).map(r => departures([r[0], r[1] || st.name], [st.lat, st.lon]).catch(() => null)))).filter(Boolean);
+        if (rs.length) deps = { list: rs.flatMap(r => r.list).sort((a, b) => a.t - b.t).slice(0, 4), sub: rs.some(r => r.sub) };
+      } catch (e) { err = true; }
+    }
+    const warn = st?.lines?.length && info ? st.lines.map(l => ({ l, i: info.get(d.lineIds.get(l)) })).filter(x => x.i && !x.i.normal) : [];
+    const link = st ? `<a href="${btLink(st.lat, st.lon)}" target="_blank" rel="noopener">BusTrackerで見る</a>` : "";
+    return `<div class="stop"><span class="sn">${x.rail || st?.c === CAT_IDX.station ? "駅" : "バス停"} ${esc(name)}<small>${walk}</small><small>${link}</small></span>
+      ${warn.map(w => `<div class="tinfo"><b>${esc(w.l)}</b>${esc(w.i.text)}</div>`).join("")}
+      ${deps ? (deps.list.length ? `<ul class="deps">${deps.list.map(v => `<li><time>${hhmm(v.t)}</time><span>${esc(v.to || "")} <span class="rt">${esc(v.route || "")}</span></span></li>`).join("")}</ul>${deps.sub ? `<small class="note">ダイヤの期間外のため、近い日の時刻です</small>` : ""}`
+        : `<small class="note">これから 6 時間の便はありません</small>`)
+        : `<small class="note">${err ? "時刻表を読み込めませんでした" : st?.refs?.length ? "時刻表を読み込めませんでした（公開版の BusTracker のデータを使います）" : "時刻表のデータがありません"}</small>`}</div>`;
+  }));
+  el.innerHTML = `<h3>行き方・次の便</h3>${parts.join("")}<small class="note">時刻表：GTFS（BusTracker が集めたもの）。運行情報：公共交通オープンデータセンター。目安です。</small>`;
+}
+function fillHowtos(root, d) { root.querySelectorAll("[data-howto]").forEach(el => { const s = d.byId.get(el.dataset.howto); if (s) fillHowto(el, s, d); }); }
+
+// 路線から選ぶ: 鉄道の路線ごとに、その駅と、駅から歩ける場所で塗れるマス
+function lineReach(map, d) {
+  const byLine = new Map();
+  const stationsOf = new Map(); // 駅名 → 路線
+  for (const s of d.spots) if (s.c === CAT_IDX.station) for (const l of s.lines || []) { (stationsOf.get(s.name) || stationsOf.set(s.name, new Set()).get(s.name)).add(l); }
+  const F = filled(map)[ui.pref]?.all || new Map();
+  for (const s of d.spots) {
+    if (!inMap(map, s)) continue;
+    let ls = null;
+    if (s.c === CAT_IDX.station) ls = s.lines;
+    else if (s.near && s.near[0] && s.near[1] <= WALK_RAIL) ls = [...(stationsOf.get(s.near[0]) || [])];
+    if (!ls) continue;
+    const c = cellOf(map.size, { p: s.pref, m3: s.m3 });
+    for (const l of ls) { const o = byLine.get(l) || byLine.set(l, { cells: new Set(), open: new Set(), spots: new Set() }).get(l); o.cells.add(c); o.spots.add(s.id); if (!F.has(c)) o.open.add(c); }
+  }
+  return [...byLine.entries()].map(([l, o]) => ({ l, ...o })).sort((a, b) => b.open.size - a.open.size || b.cells.size - a.cells.size);
 }
 
 /* ================= マスのおすすめ ================= */
@@ -620,7 +782,7 @@ const svg = d3.select("#map"), wrap = document.getElementById("mapwrap");
 const gz = svg.append("g");
 let W = 0, H = 0, K = 1, markerSel = null, detailProj = null;
 let pickSel = null, cellPx = 0, pinSel = null;
-const PIN = { want: { cls: "want", label: "行きたい", t: "行" }, hold: { cls: "hold", label: "保留", t: "保" }, vt: { cls: "vt", label: "公共交通で行った", t: "✓" }, vo: { cls: "vo", label: "行った", t: "✓" } };
+const PIN = { want: { cls: "want", label: "行きたい", t: "行" }, hold: { cls: "hold", label: "保留", t: "保" }, vt: { cls: "vt", label: "電車・バスで行った", t: "✓" }, vo: { cls: "vo", label: "車などで行った", t: "✓" } };
 function myRecords(pid) { // 行った場所と、印（行きたい・保留）を付けた場所。pid があればその県だけ
   const out = [];
   for (const [id, v] of Object.entries(state.visits)) if (!pid || v.p === pid) out.push({ id, r: v, k: v.t ? "vt" : "vo" });
@@ -768,6 +930,7 @@ async function drawDetail() {
     pickSel.append("text").text(p => CATS[p.s.c].mk);
     sizePicks();
     drawPins(() => proj, true);
+    highlightLine();
     return;
   }
   if (list.length <= 600) {
@@ -789,9 +952,9 @@ function drawLegend() {
   const pins = state.layers.mine && (Object.keys(state.visits).length || Object.keys(state.marks).length)
     ? `<span><b class="pin" style="background:var(--c-matsuri)"></b>行きたい</span><span><b class="pin" style="background:var(--muted)"></b>保留</span>` : "";
   const lv = [1, 2, 3, 4].map(l => `<span><i style="background:var(--lv${l})"></i>${LV_NAME[l]}</span>`).join("");
-  if (ui.view !== "detail") L.innerHTML = lv + (map.size !== "pref" ? `<span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>ほかの手段で塗った</span>` : "");
+  if (ui.view !== "detail") L.innerHTML = lv + (map.size !== "pref" ? `<span><i style="background:var(--fill-tr)"></i>電車・バスで塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>` : "");
   else if (map.size === "pref") L.innerHTML = lv;
-  else L.innerHTML = `<span><i style="background:var(--target);border:1px dashed var(--accent)"></i>まだ塗れる</span><span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>ほかの手段で塗った</span>`;
+  else L.innerHTML = `<span><i style="background:var(--target);border:1px dashed var(--accent)"></i>まだ塗れる</span><span><i style="background:var(--fill-tr)"></i>電車・バスで塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>`;
   L.innerHTML += pins;
 }
 
@@ -810,7 +973,7 @@ function renderOverviewPanel() {
   const regions = REGIONS.map(([name, ids]) => bar(name, ids.filter(i => S.F[i]?.touched).length, ids.length)).join("");
   const badges = BADGES.map(([n, d]) => `<div class="badge${TT.badges.has(n) ? " got" : ""}"><span class="seal">${TT.badges.has(n) ? "印" : "・"}</span><b>${n}</b><small>${d}</small></div>`).join("");
   const recent = Object.entries(state.visits).sort((a, b) => b[1].d.localeCompare(a[1].d)).slice(0, 6)
-    .map(([id, v]) => `<li class="row"><span class="mk cat-${CATS[v.c]?.k}">${CATS[v.c]?.mk}</span><div class="nm" style="cursor:pointer" data-pref="${v.p}"><b>${esc(v.n)}</b><small>${PREF[v.p]?.name || ""}・${v.d}・${v.t ? "公共交通" : "ほかの手段"}</small></div></li>`).join("");
+    .map(([id, v]) => `<li class="row"><span class="mk cat-${CATS[v.c]?.k}">${CATS[v.c]?.mk}</span><div class="nm" style="cursor:pointer" data-pref="${v.p}"><b>${esc(v.n)}</b><small>${PREF[v.p]?.name || ""}・${v.d}・${v.t ? "電車・バス" : "車など"}</small></div></li>`).join("");
   panel.innerHTML = `
     <div class="sec ph">
       <h1 style="font-size:22px">${esc(map.name)}</h1>
@@ -845,7 +1008,7 @@ function renderOverviewPanel() {
     <div class="sec"><h2>出典</h2>
       <p class="note">地図：<a href="https://www.gsi.go.jp/kankyochiri/gm_jpn.html" target="_blank" rel="noopener">地球地図日本</a>（国土地理院）を <a href="https://github.com/dataofjapan/land" target="_blank" rel="noopener">dataofjapan/land</a> が変換したもの。<br>
       観光地・温泉など：「国土数値情報（観光資源データ）」（国土交通省、2014年）を加工して作成。道の駅：「国土数値情報（道の駅データ）」（国土交通省、2019年1月時点）を加工して作成。<br>
-      駅・バス停：出典：公共交通オープンデータセンター。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
+      駅・バス停・運行情報：出典：公共交通オープンデータセンター。次の便は、BusTracker（同じ作者の全国バス・鉄道マップ）が集めた GTFS の時刻表から求めた目安です。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
       <details id="srcdet"><summary>交通データの提供元をすべて見る</summary><ol class="srclist" id="srclist"><li>読み込み中…</li></ol></details>
     </div>`;
   panel.querySelectorAll("[data-pref]").forEach(el => el.onclick = () => openPref(+el.dataset.pref));
@@ -873,6 +1036,7 @@ function renderOverviewPanel() {
 }
 
 function nearText(s) {
+  if (s.c === CAT_IDX.station && TINFO) { const d = prefData.get(s.pref), bad = (s.lines || []).filter(l => { const i = TINFO.get(d?.lineIds.get(l)); return i && !i.normal; }); if (bad.length) return `<span class="chipw">運行情報</span> ${esc(bad.join("・"))}`; }
   if (s.c === CAT_IDX.station) return s.lines?.length ? esc(s.lines.slice(0, 3).join("・")) + (s.lines.length > 3 ? ` ほか${s.lines.length - 3}路線` : "") : "鉄道の駅";
   if (s.c === CAT_IDX.bus) return "バス停";
   const n = s.near, parts = [];
@@ -883,11 +1047,16 @@ function nearText(s) {
 function actsHtml(s) {
   const v = state.visits[s.id], m = state.marks[s.id]?.s, id = esc(s.id);
   const marks = `<button type="button" class="mark want" data-mark="want" data-id="${id}" aria-pressed="${m === "want"}">行きたい</button><button type="button" class="mark hold" data-mark="hold" data-id="${id}" aria-pressed="${m === "hold"}">保留</button>`;
-  if (v) return `<div class="done"><b class="${v.t ? "" : "car"}">${v.t ? "公共交通で行った" : "行った"}</b><input type="date" data-date="${id}" value="${v.d}" max="${today()}" aria-label="行った日"> <button type="button" data-undo="${id}">取り消す</button></div>`;
-  if (TRANSIT.has(s.c)) return `<div class="acts">${marks}<button type="button" class="go" data-go="${id}" data-t="1">乗り降りした</button></div>`;
-  return `<div class="acts">${marks}<button type="button" class="go" data-go="${id}" data-t="1">公共交通で行った</button><button type="button" class="go alt" data-go="${id}" data-t="0">ほかで行った</button></div>`;
+  if (v) return `<div class="done"><b class="${v.t ? "" : "car"}">${v.t ? "電車・バスで行った" : "車などで行った"}</b><input type="date" data-date="${id}" value="${v.d}" max="${today()}" aria-label="行った日"> <button type="button" data-undo="${id}">取り消す</button></div>`;
+  if (TRANSIT.has(s.c)) return `<div class="acts">${marks}<button type="button" class="go" data-go="${id}" data-t="1" title="この駅・バス停で乗り降りした。マスが緑で塗られます">乗り降りした</button></div>`;
+  return `<div class="acts">${marks}<button type="button" class="go" data-go="${id}" data-t="1" title="電車・バスで行った。マスが緑で塗られ、公共交通の記録に数えます">電車・バスで行った</button><button type="button" class="go alt" data-go="${id}" data-t="0" title="車・自転車・徒歩などで行った。マスは青で塗られます（公共交通だけの地図では塗られません）">車などで行った</button></div>`;
 }
 
+function highlightLine() {
+  const d = prefData.get(ui.pref), map = curMap(); if (!d) return;
+  const sel = ui.line && lineReach(map, d).find(x => x.l === ui.line);
+  gz.selectAll(".cell").classed("hl", c => !!sel && sel.cells.has(c));
+}
 function rowHtml(s) {
   return `<li class="row" data-id="${esc(s.id)}"><span class="mk cat-${CATS[s.c].k}${state.visits[s.id] ? "" : " off"}">${CATS[s.c].mk}</span>
     <div class="nm"><b>${s.top ? '<span class="star" title="名所">★</span>' : ""}${esc(s.name)}${rowHtml.picks?.has(s.id) ? '<span class="tagp">おすすめ</span>' : ""}${state.marks[s.id]?.s === "want" && !state.visits[s.id] ? '<span class="stw">行きたい</span>' : ""}${state.marks[s.id]?.s === "hold" && !state.visits[s.id] ? '<span class="sth">保留</span>' : ""}</b><small>${nearText(s)}</small></div>${actsHtml(s)}</li>`;
@@ -910,6 +1079,8 @@ async function renderDetailPanel() {
   const all = d.spots.filter(s => inMap(map, s)).sort((a, b) => b.top - a.top);
   const q = ui.q.trim();
   let list = all;
+  const LR = lineReach(map, d), selLine = ui.line && LR.find(x => x.l === ui.line);
+  if (selLine) list = list.filter(s => selLine.spots.has(s.id));
   if (ui.cell) list = list.filter(s => cellOf(map.size, { p: pid, m3: s.m3 }) === ui.cell);
   if (q) list = list.filter(s => s.name.includes(q));
   if (ui.reach) list = list.filter(s => s.reach);
@@ -917,6 +1088,7 @@ async function renderDetailPanel() {
   const P1 = map.size !== "pref" ? picks(map, d) : null;
   const pickIds = new Set(P1 ? [...P1.values()].map(s => s.id) : []);
   const cellPick = ui.cell && P1 ? P1.get(ui.cell) : null;
+  const selSpot = ui.spot ? d.byId.get(ui.spot) : null;
   const nextPicks = !ui.cell && !q && P1 ? [...P1.values()].sort(better).slice(0, 5) : [];
   const LIMIT = 150, shown = list.slice(0, LIMIT);
   rowHtml.picks = pickIds;
@@ -929,10 +1101,17 @@ async function renderDetailPanel() {
       <label class="check" for="reach"><input type="checkbox" id="reach" ${ui.reach ? "checked" : ""}>駅（${WALK_RAIL / 1000}km）・バス停（${WALK_BUS}m）から歩ける所だけ</label>
     </div>
     ${ui.cell ? `<div class="filterbar" style="margin-top:8px"><span>マス ${fmtMesh(ui.cell)} の場所</span><button type="button" id="cell-clear">すべて表示</button></div>` : ""}
-    ${cellPick ? `<div class="reco" style="margin-top:8px"><span class="lbl">このマスのおすすめ</span>${rowHtml(cellPick)}<small class="note">${esc(whyText(cellPick))}</small></div>`
+    ${selSpot && selSpot !== cellPick ? `<div class="reco" style="margin-top:8px"><span class="lbl">選んだ場所</span>${rowHtml(selSpot)}${howtoHtml(selSpot)}</div>` : ""}
+    ${cellPick ? `<div class="reco" style="margin-top:8px"><span class="lbl">このマスのおすすめ</span>${rowHtml(cellPick)}<small class="note">${esc(whyText(cellPick))}</small>${howtoHtml(cellPick)}</div>`
       : ui.cell && P1 && F.has(ui.cell) ? `<p class="note" style="margin-top:8px">このマスは塗りました。${F.get(ui.cell) ? "公共交通で行きました。" : ""}</p>` : ""}
-    ${nextPicks.length ? `<div class="reco" style="margin-top:8px"><span class="lbl">まだ塗っていないマスのおすすめ</span><ul class="list">${nextPicks.map(rowHtml).join("")}</ul><small class="note">「おすすめの選び方」（全国の画面）で優先度を変えられます。</small></div>` : ""}
+    ${selLine ? `<div class="filterbar" style="margin-top:8px"><span>${esc(selLine.l)}で行ける場所（まだ塗っていないマス ${selLine.open.size}）</span><button type="button" id="line-clear">路線をやめる</button></div>` : ""}
+    <div id="tinfo-pref"></div>
+    ${LR.length && !ui.cell && !q ? `<details class="sec" style="margin-top:8px" ${selLine ? "open" : ""}><summary>路線から選ぶ（${LR.length}路線）</summary>
+      <p class="note" style="margin:6px 0">その路線の駅と、駅から歩ける場所で塗れるマスの数です。まだ塗っていないマスが多い順。</p>
+      <ul class="lines">${LR.slice(0, 15).map(x => `<li><button type="button" data-line="${esc(x.l)}" aria-pressed="${ui.line === x.l}"><span class="ln">${esc(x.l)}</span><span class="cnt">まだ <b>${x.open.size}</b> / ${x.cells.size}マス</span></button></li>`).join("")}</ul></details>` : ""}
+    ${nextPicks.length && !selLine ? `<div class="reco" style="margin-top:8px"><span class="lbl">まだ塗っていないマスのおすすめ</span><ul class="list">${nextPicks.map(rowHtml).join("")}</ul><small class="note">「おすすめの選び方」（全国の画面）で優先度を変えられます。</small></div>` : ""}
     <h2 style="margin-top:14px">${ui.cell ? "このマスの場所" : "場所の一覧"}</h2>
+    <p class="note" style="margin-bottom:6px">「電車・バスで行った」はマスが<b style="color:var(--fill-tr)">緑</b>、「車などで行った」は<b style="color:var(--fill)">青</b>で塗られます。</p>
     <ul class="list">${shown.map(rowHtml).join("")}</ul>
     ${list.length > LIMIT ? `<p class="note">ほか ${(list.length - LIMIT).toLocaleString()}か所。マスを押すか、名前で探すと絞れます。</p>` : ""}
     ${!list.length ? `<p class="note">当てはまる場所がありません。</p>` : ""}`;
@@ -941,6 +1120,15 @@ async function renderDetailPanel() {
   document.getElementById("reach").onchange = e => { ui.reach = e.target.checked; renderDetailPanel(); };
   const cc = document.getElementById("cell-clear"); if (cc) cc.onclick = () => { ui.cell = null; ui.spot = null; renderPanel(); gz.selectAll(".cell").classed("on", false); };
   bindRowActions(sec);
+  fillHowtos(sec, d);
+  sec.querySelectorAll("[data-line]").forEach(b => b.onclick = () => { ui.line = ui.line === b.dataset.line ? null : b.dataset.line; ui.cell = null; ui.spot = null; renderDetailPanel(); highlightLine(); });
+  const lc = document.getElementById("line-clear"); if (lc) lc.onclick = () => { ui.line = null; renderDetailPanel(); highlightLine(); };
+  // この県の路線の運行情報（平常でないものだけ）
+  trainInfo().then(info => {
+    const el = document.getElementById("tinfo-pref"); if (!el || ui.pref !== pid) return;
+    const bad = [...d.lineIds.entries()].map(([l, id]) => ({ l, i: info.get(id) })).filter(x => x.i && !x.i.normal);
+    el.innerHTML = bad.length ? `<div class="tinfo" style="margin-top:8px"><b>運行情報（${bad.length}路線）</b>${bad.slice(0, 5).map(x => `${esc(x.l)}：${esc(x.i.text)}`).join("<br>")}</div>` : "";
+  }).catch(() => {});
   if (ui.spot) { const r = [...sec.querySelectorAll(".row")].find(x => x.dataset.id === ui.spot); if (r) { r.classList.add("flash"); r.scrollIntoView({ block: "nearest" }); } }
 }
 
@@ -1008,7 +1196,7 @@ function renderPanel() { ui.view === "list" ? renderListPanel() : ui.view === "o
 function render(keepZoom) { if (!IDX || !curMap()) return; renderHeader(); drawMap(keepZoom); renderPanel(); }
 
 /* ================= 操作 ================= */
-function openPref(id) { ui.view = "detail"; ui.pref = id; ui.cell = null; ui.spot = null; ui.q = ""; render(); }
+function openPref(id) { ui.view = "detail"; ui.pref = id; ui.cell = null; ui.spot = null; ui.q = ""; ui.line = null; render(); }
 function flashRow(id) {
   const row = [...panel.querySelectorAll(".row")].find(r => r.dataset.id === id);
   if (row) { row.scrollIntoView({ block: "nearest", behavior: "smooth" }); row.classList.add("flash"); }
@@ -1079,7 +1267,7 @@ async function goToSpot(pid, id) {
   let d; try { d = await loadPref(pid); } catch (e) { toast("この県のデータを読み込めませんでした"); return; }
   const s = d.byId.get(id); if (!s) return;
   const map = curMap();
-  ui.view = "detail"; ui.pref = pid; ui.q = ""; ui.reach = false; ui.spot = id;
+  ui.view = "detail"; ui.pref = pid; ui.q = ""; ui.reach = false; ui.spot = id; ui.line = null;
   ui.cell = map.size !== "pref" && inMap(map, s) ? cellOf(map.size, { p: pid, m3: s.m3 }) : null;
   render();
   if (detailProj) { const [x, y] = detailProj([s.lon, s.lat]); svg.transition().duration(600).call(zoom.transform, d3.zoomIdentity.translate(W / 2, H / 2).scale(map.size === "m3" ? 10 : 4).translate(-x, -y)); }
