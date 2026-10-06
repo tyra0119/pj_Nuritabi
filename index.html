@@ -89,6 +89,7 @@ a { color: var(--accent); }
 .panel { min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 22px; }
 .backbtn { position: absolute; top: 12px; left: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 700; }
 .legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11px; color: var(--muted); max-width: calc(100% - 24px); }
+.legend b.pin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; border: 1.5px solid var(--panel); box-shadow: 0 0 0 1px var(--border); }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--border); }
 .hint { position: absolute; top: 12px; right: 12px; max-width: 260px; font-size: 12px; color: var(--muted); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 .attr { position: absolute; right: 8px; bottom: 6px; font-size: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 75%, transparent); padding: 1px 6px; border-radius: 4px; }
@@ -134,6 +135,13 @@ a { color: var(--accent); }
 .pick.want .ring { stroke: var(--c-matsuri); stroke-width: 2.5; stroke-dasharray: none; }
 .pick.small text, .pick.small .ring { display: none; }
 .pick.small circle { fill: var(--c); stroke: var(--panel); stroke-width: 1; }
+.spin { cursor: pointer; }
+.spin circle { stroke: var(--panel); stroke-width: 1.5; }
+.spin.want circle { fill: var(--c-matsuri); } .spin.hold circle { fill: var(--muted); }
+.spin.vt circle { fill: var(--fill-tr); } .spin.vo circle { fill: var(--fill); }
+.spin text { fill: var(--marker-ink); font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; font-family: var(--font-b); }
+.spin.hold text { fill: var(--panel); }
+.spin.sel circle { stroke: var(--ink); stroke-width: 2.5; }
 
 /* ---- panel ---- */
 .sec h2 { font-size: 12px; letter-spacing: .12em; color: var(--muted); margin: 0 0 10px; font-weight: 700; }
@@ -318,6 +326,7 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
       <div class="layers" id="layers">
         <label for="ly-rail"><input type="checkbox" id="ly-rail"><i style="border-color:var(--rail)"></i>鉄道</label>
         <label for="ly-bus" id="ly-bus-l"><input type="checkbox" id="ly-bus"><i style="border-color:var(--bus)"></i>バス路線</label>
+        <label for="ly-mine"><input type="checkbox" id="ly-mine"><b class="pin" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c-matsuri)"></b>行きたい・行った場所</label>
       </div>
       <div class="legend" id="legend"></div>
       <div class="attr">地図：<a href="https://www.gsi.go.jp/kankyochiri/gm_jpn.html" target="_blank" rel="noopener">地球地図日本</a></div>
@@ -433,6 +442,7 @@ if (!Array.isArray(state.prio) || state.prio.length !== PRIO_DEFAULT.length) sta
 if (!state.marks || typeof state.marks !== "object") state.marks = {}; // 行きたい（want）・保留（hold）
 let markVer = 0;
 if (!state.layers) state.layers = { rail: true, bus: true };
+if (state.layers.mine === undefined) state.layers.mine = true;
 function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 const curMap = () => state.maps.find(m => m.id === state.cur) || null;
 const ui = { view: "over", pref: null, cell: null, spot: null, q: "", reach: false, list: { tab: "visit", pref: "", cat: "", sort: "new" } };
@@ -593,10 +603,40 @@ function totals() {
 const svg = d3.select("#map"), wrap = document.getElementById("mapwrap");
 const gz = svg.append("g");
 let W = 0, H = 0, K = 1, markerSel = null, detailProj = null;
-let pickSel = null, cellPx = 0;
+let pickSel = null, cellPx = 0, pinSel = null;
+const PIN = { want: { cls: "want", label: "行きたい", t: "行" }, hold: { cls: "hold", label: "保留", t: "保" }, vt: { cls: "vt", label: "公共交通で行った", t: "✓" }, vo: { cls: "vo", label: "行った", t: "✓" } };
+function myRecords(pid) { // 行った場所と、印（行きたい・保留）を付けた場所。pid があればその県だけ
+  const out = [];
+  for (const [id, v] of Object.entries(state.visits)) if (!pid || v.p === pid) out.push({ id, r: v, k: v.t ? "vt" : "vo" });
+  for (const [id, m] of Object.entries(state.marks)) if (!state.visits[id] && (!pid || m.p === pid)) out.push({ id, r: m, k: m.s === "hold" ? "hold" : "want" });
+  return out;
+}
+function posOf(id, r) { // 読み込んだ県のデータ → 記録の座標 → 1km マスの中心
+  const s = prefData.get(r.p)?.byId.get(id);
+  if (s) return [s.lon, s.lat];
+  if (r.la) return [r.lo, r.la];
+  const [x0, y0, x1, y1] = meshBox(r.m3); return [(x0 + x1) / 2, (y0 + y1) / 2];
+}
+function drawPins(projOf, big) {
+  if (!state.layers.mine) return;
+  const order = { hold: 0, vo: 1, vt: 1, want: 2 };
+  const L = ui.list, inList = x => ui.view !== "list" || ((L.tab === "visit" ? x.k[0] === "v" : x.k === L.tab) && (!L.pref || x.r.p === +L.pref) && (L.cat === "" || x.r.c === +L.cat || (L.cat === "top" && x.r.top)));
+  const list = myRecords(big ? ui.pref : null).filter(inList).sort((a, b) => order[a.k] - order[b.k])
+    .map(x => { const [lon, lat] = posOf(x.id, x.r), [px, py] = projOf(x.r.p)([lon, lat]); return { ...x, x: px, y: py }; });
+  pinSel = gz.append("g").selectAll("g").data(list).join("g")
+    .attr("class", d => `spin ${PIN[d.k].cls}${ui.spot === d.id ? " sel" : ""}`)
+    .attr("transform", d => `translate(${d.x},${d.y}) scale(${1 / (big ? Math.sqrt(K) : K)})`)
+    .on("mousemove", (ev, d) => showTip(ev, `<b>${d.r.top ? "★" : ""}${esc(d.r.n)}</b>${PIN[d.k].label}${d.k[0] === "v" ? "・" + d.r.d.replace(/-/g, "/") : ""}・${PREF[d.r.p]?.name}`))
+    .on("mouseleave", hideTip)
+    .on("click", (ev, d) => { ev.stopPropagation(); goToSpot(d.r.p, d.id); });
+  pinSel.append("circle").attr("r", big ? 9 : 5);
+  if (big) pinSel.append("text").text(d => PIN[d.k].t);
+  pinSel.each(function (d) { this.__big = big; });
+}
 const zoom = d3.zoom().scaleExtent([1, 40]).on("zoom", e => {
   gz.attr("transform", e.transform); K = e.transform.k;
   if (markerSel) markerSel.attr("transform", d => `translate(${d.x},${d.y}) scale(${1 / Math.sqrt(K)})`);
+  if (pinSel) pinSel.attr("transform", function (d) { return `translate(${d.x},${d.y}) scale(${1 / (this.__big ? Math.sqrt(K) : K)})`; });
   sizePicks();
 });
 function sizePicks() { // マスが画面で小さいうちは小さな点、大きくなったら字の入った印
@@ -627,7 +667,7 @@ function drawMap(keepZoom) {
   const t = d3.zoomTransform(svg.node());
   W = wrap.clientWidth; H = wrap.clientHeight;
   svg.attr("viewBox", `0 0 ${W} ${H}`);
-  gz.selectAll("*").remove(); markerSel = null; pickSel = null; hideTip();
+  gz.selectAll("*").remove(); markerSel = null; pickSel = null; pinSel = null; hideTip();
   if (ui.view === "detail") drawDetail(); else drawOverview();
   drawLegend();
   svg.call(zoom.transform, keepZoom ? t : d3.zoomIdentity);
@@ -659,6 +699,7 @@ function drawOverview() {
     gz.append("g").selectAll("rect").data(cells).join("rect").attr("class", d => `dot ${d.tr ? "tr" : "f"}`)
       .each(function (d) { const r = rectOf(projOf(d.pid), d.c, 2); d3.select(this).attr("x", r.x).attr("y", r.y).attr("width", r.w).attr("height", r.h); });
   }
+  drawPins(projOf, false);
   const hint = document.getElementById("hint");
   hint.hidden = true;
 }
@@ -710,6 +751,7 @@ async function drawDetail() {
     pickSel.append("circle").attr("class", "ring").attr("r", 13);
     pickSel.append("text").text(p => CATS[p.s.c].mk);
     sizePicks();
+    drawPins(() => proj, true);
     return;
   }
   if (list.length <= 600) {
@@ -723,14 +765,18 @@ async function drawDetail() {
     markerSel.append("circle").attr("r", 10);
     markerSel.append("text").text(p => CATS[p.s.c].mk);
   }
+  drawPins(() => proj, true);
 }
 
 function drawLegend() {
   const L = document.getElementById("legend"), map = curMap(); if (!map) { L.innerHTML = ""; return; }
+  const pins = state.layers.mine && (Object.keys(state.visits).length || Object.keys(state.marks).length)
+    ? `<span><b class="pin" style="background:var(--c-matsuri)"></b>行きたい</span><span><b class="pin" style="background:var(--muted)"></b>保留</span>` : "";
   const lv = [1, 2, 3, 4].map(l => `<span><i style="background:var(--lv${l})"></i>${LV_NAME[l]}</span>`).join("");
   if (ui.view !== "detail") L.innerHTML = lv + (map.size !== "pref" ? `<span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>ほかの手段で塗った</span>` : "");
   else if (map.size === "pref") L.innerHTML = lv;
   else L.innerHTML = `<span><i style="background:var(--target);border:1px dashed var(--accent)"></i>まだ塗れる</span><span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>ほかの手段で塗った</span>`;
+  L.innerHTML += pins;
 }
 
 /* ================= パネル ================= */
@@ -896,6 +942,7 @@ function renderHeader() {
   document.getElementById("mylist").setAttribute("aria-pressed", ui.view === "list");
   document.getElementById("ly-rail").checked = state.layers.rail;
   document.getElementById("ly-bus").checked = state.layers.bus;
+  document.getElementById("ly-mine").checked = state.layers.mine;
   document.getElementById("ly-bus-l").hidden = ui.view !== "detail";
   document.getElementById("layers").classList.toggle("over-layers", ui.view !== "detail");
 }
@@ -934,9 +981,9 @@ function renderListPanel() {
       <p class="note">${list.length}か所${L.tab === "visit" ? "。行った日は日付の欄で直せます" : ""}。名前を押すと地図でその場所を開きます。</p>
     </div>
     <div class="sec">${body}</div>`;
-  panel.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { L.tab = b.dataset.tab; L.pref = ""; renderListPanel(); });
-  document.getElementById("lf-pref").onchange = e => { L.pref = e.target.value; renderListPanel(); };
-  document.getElementById("lf-cat").onchange = e => { L.cat = e.target.value; renderListPanel(); };
+  panel.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { L.tab = b.dataset.tab; L.pref = ""; renderListPanel(); drawMap(true); });
+  document.getElementById("lf-pref").onchange = e => { L.pref = e.target.value; renderListPanel(); drawMap(true); };
+  document.getElementById("lf-cat").onchange = e => { L.cat = e.target.value; renderListPanel(); drawMap(true); };
   document.getElementById("lf-sort").onchange = e => { L.sort = e.target.value; renderListPanel(); };
   panel.querySelectorAll("[data-goto]").forEach(el => el.onclick = () => goToSpot(+el.dataset.p, el.dataset.goto));
   bindRowActions(panel);
@@ -957,7 +1004,7 @@ function visit(id, byTransit) {
   const map = curMap(), before = totals(), F0 = filled(map)[s.pref];
   const cell = cellOf(map.size, { p: s.pref, m3: s.m3 });
   const wasFilled = F0?.all.has(cell), wasTr = F0?.all.get(cell);
-  state.visits[id] = { d: today(), p: s.pref, m3: s.m3, c: s.c, t: byTransit ? 1 : 0, n: s.name, ...(s.top ? { top: 1 } : {}) };
+  state.visits[id] = { d: today(), p: s.pref, m3: s.m3, c: s.c, t: byTransit ? 1 : 0, n: s.name, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
   if (state.marks[id]) { delete state.marks[id]; markVer++; }
   save();
   const after = totals(), F1 = filled(map)[s.pref], msgs = [];
@@ -977,12 +1024,12 @@ function visit(id, byTransit) {
 function findSpot(id) { // 読み込んだ県のデータ → 記録（行った・印）の順に探す
   for (const d of prefData.values()) { const s = d.byId.get(id); if (s) return s; }
   const r = state.visits[id] || state.marks[id];
-  return r ? { id, name: r.n, c: r.c, pref: r.p, m3: r.m3, top: !!r.top } : null;
+  return r ? { id, name: r.n, c: r.c, pref: r.p, m3: r.m3, top: !!r.top, ...(r.la ? { lat: r.la, lon: r.lo } : {}) } : null;
 }
 function setMark(id, kind) {
   const s = findSpot(id); if (!s) return;
   if (state.marks[id]?.s === kind) delete state.marks[id];
-  else state.marks[id] = { s: kind, d: today(), p: s.pref, c: s.c, n: s.name, m3: s.m3, ...(s.top ? { top: 1 } : {}) };
+  else state.marks[id] = { s: kind, d: today(), p: s.pref, c: s.c, n: s.name, m3: s.m3, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
   markVer++; save(); render(true);
   toast(state.marks[id] ? (kind === "want" ? "行きたい場所に入れました。マスのおすすめで先に出ます" : "保留にしました。おすすめに出なくなります") : "印を外しました");
 }
@@ -1207,6 +1254,7 @@ document.getElementById("newmap").onclick = openSetup;
 document.getElementById("mylist").onclick = () => { ui.view = ui.view === "list" ? "over" : "list"; ui.pref = null; ui.cell = null; ui.spot = null; render(); };
 document.getElementById("ly-rail").onchange = e => { state.layers.rail = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-bus").onchange = e => { state.layers.bus = e.target.checked; save(); drawMap(true); };
+document.getElementById("ly-mine").onchange = e => { state.layers.mine = e.target.checked; save(); drawMap(true); };
 document.getElementById("mapsel").onchange = e => { state.cur = e.target.value; save(); render(); };
 document.getElementById("back").onclick = () => { ui.view = "over"; ui.pref = null; ui.cell = null; ui.spot = null; render(); };
 
