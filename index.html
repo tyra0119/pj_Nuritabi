@@ -1220,7 +1220,9 @@ async function renderDetailPanel() {
       </div>
     </div>
     <div class="sec" id="spotsec"><p class="note">場所を読み込んでいます…</p></div>`;
-  let d; try { d = await loadPref(pid); } catch (e) { document.getElementById("spotsec").innerHTML = `<p class="note">この県のデータを読み込めませんでした。時間をおいて開き直してください。</p>`; return; }
+  // 読み込み済みなら待たずに続ける（一瞬でも中身が短くなると、スクロールが先頭に戻ってしまう）
+  let d = prefData.get(pid);
+  if (!d) { try { d = await loadPref(pid); } catch (e) { document.getElementById("spotsec").innerHTML = `<p class="note">この県のデータを読み込めませんでした。時間をおいて開き直してください。</p>`; return; } }
   if (ui.view !== "detail" || ui.pref !== pid) return;
   const all = d.spots.filter(s => inMap(map, s)).sort((a, b) => b.top - a.top);
   const q = ui.q.trim();
@@ -1272,7 +1274,7 @@ async function renderDetailPanel() {
     const bad = [...d.lineIds.entries()].map(([l, id]) => ({ l, i: info.get(id) })).filter(x => x.i && !x.i.normal);
     el.innerHTML = bad.length ? `<div class="tinfo" style="margin-top:8px"><b>運行情報（${bad.length}路線）</b>${bad.slice(0, 5).map(x => `${esc(x.l)}：${esc(x.i.text)}`).join("<br>")}</div>` : "";
   }).catch(() => {});
-  if (ui.spot) { const r = [...sec.querySelectorAll(".row")].find(x => x.dataset.id === ui.spot); if (r) { r.classList.add("flash"); r.scrollIntoView({ block: "nearest" }); } }
+  if (ui.spot && !keepScroll) { const r = [...sec.querySelectorAll(".row")].find(x => x.dataset.id === ui.spot); if (r) { r.classList.add("flash"); r.scrollIntoView({ block: "nearest" }); } }
 }
 
 function renderHeader() {
@@ -1364,7 +1366,7 @@ function visit(id, byTransit) {
   if (F1 && F1.all.size >= t && (F0?.all.size || 0) < t) msgs.push(`<b>制覇</b>${PREF[s.pref].name}を塗りきりました`);
   after.badges.forEach(b => { if (!before.badges.has(b)) msgs.push(`<b>実績</b>${b}`); });
   if (!msgs.length) msgs.push(`<b>記録</b>${esc(s.name)}`);
-  render(true);
+  rerenderKeep();
   if (cellLayer && cellLayer.T.has(cell)) { const pop = cellLayer.g.append("path").attr("class", "cell pop").attr("d", cellLayer.rp(cell)); setTimeout(() => pop.remove(), 1100); }
   msgs.forEach((m, i) => setTimeout(() => toast(m, true), i * 350));
 }
@@ -1377,7 +1379,7 @@ function setMark(id, kind) {
   const s = findSpot(id); if (!s) return;
   if (state.marks[id]?.s === kind) delete state.marks[id];
   else state.marks[id] = { s: kind, d: today(), p: s.pref, c: s.c, n: s.name, m3: s.m3, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
-  markVer++; save(); render(true);
+  markVer++; save(); rerenderKeep();
   toast(state.marks[id] ? (kind === "want" ? "行きたい場所に入れました。マスのおすすめで先に出ます" : "保留にしました。おすすめに出なくなります") : "印を外しました");
 }
 function setDate(id, d) {
@@ -1390,7 +1392,16 @@ function bindRowActions(root) {
   root.querySelectorAll("[data-mark]").forEach(b => b.onclick = () => setMark(b.dataset.id, b.dataset.mark));
   root.querySelectorAll("[data-date]").forEach(i => i.onchange = () => setDate(i.dataset.date, i.value));
 }
-function unvisit(id) { delete state.visits[id]; save(); render(true); toast("記録を取り消しました"); }
+function unvisit(id) { delete state.visits[id]; save(); rerenderKeep(); toast("記録を取り消しました"); }
+// 記録を変えたあとに描き直すときは、パネルとページのスクロール位置をそのままにする
+let keepScroll = false;
+function rerenderKeep() {
+  const a = panel.scrollTop, b = window.scrollY;
+  keepScroll = true;
+  try { render(true); } finally { keepScroll = false; }
+  panel.scrollTop = a;
+  if (Math.abs(window.scrollY - b) > 1) window.scrollTo(0, b);
+}
 
 const toasts = document.getElementById("toasts");
 function toast(html, raw) {
