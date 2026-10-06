@@ -85,7 +85,7 @@ a { color: var(--accent); }
 /* ---- main ---- */
 .main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
 .mapwrap { position: relative; min-height: 0; background: var(--sea); overflow: hidden; }
-#map { display: block; width: 100%; height: 100%; touch-action: none; }
+#map { display: block; width: 100%; height: 100%; touch-action: none; transform-origin: 0 0; }
 .panel { min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 22px; }
 .backbtn { position: absolute; top: 12px; left: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 700; }
 .legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11px; color: var(--muted); max-width: calc(100% - 24px); }
@@ -113,7 +113,6 @@ a { color: var(--accent); }
 .cell.on, .cell.hl { fill: none; pointer-events: none; }
 .cell.pop { fill: var(--lv4); stroke: none; pointer-events: none; animation: popfade 1s ease-out forwards; }
 @keyframes popfade { to { opacity: 0; } }
-#map.moving .busline { visibility: hidden; }
 .busline.over { stroke-width: .5; opacity: .35; }
 .muni { fill: none; stroke: var(--muted); stroke-width: .7; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .7; }
 .muni-l text { font-size: 11px; font-family: var(--font-b); fill: var(--ink); text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: var(--land); stroke-width: 3px; stroke-linejoin: round; opacity: .8; }
@@ -518,7 +517,7 @@ async function boot() {
 function decodeLine(str, prec = 1e4) { let i = 0, lat = 0, lon = 0; const o = []; while (i < str.length) { for (const k of [0, 1]) { let r = 0, sh = 0, b; do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); const d = (r & 1) ? ~(r >> 1) : (r >> 1); if (k) lon += d; else lat += d; } o.push([lon / prec, lat / prec]); } return o; }
 let RAIL = null, railLoading = null;
 function loadRail() { // 鉄道（国土数値情報 N02）。[[lon, lat], …] の線の集まり
-  return railLoading ||= fetch("data/rail.json").then(r => r.json()).then(j => { RAIL = { main: [], oki: [] }; for (const l of j.lines) for (const e of l[3]) { const pts = decodeLine(e); (pts[0][1] < 27.5 && pts[0][0] < 129.5 ? RAIL.oki : RAIL.main).push(pts); } drawMap(true); }).catch(() => {});
+  return railLoading ||= fetch("data/rail.json").then(r => r.json()).then(j => { RAIL = { main: [], oki: [], bb: new Map() }; for (const l of j.lines) for (const e of l[3]) { const pts = decodeLine(e); (pts[0][1] < 27.5 && pts[0][0] < 129.5 ? RAIL.oki : RAIL.main).push(pts); let a = 180, b = 90, c = -180, d = -90; for (const [x, y] of pts) { if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y; } RAIL.bb.set(pts, [a, b, c, d]); } drawMap(true); }).catch(() => {});
 }
 let BUSALL = null, busAllP = null;
 function loadBusAll() { // 全国の地図用の路線バス（200 m ほどで間引いたもの）
@@ -884,9 +883,8 @@ function drawPins(projOf, big) {
   if (big) pinSel.append("text").text(d => PIN[d.k].t);
   pinSel.each(function (d) { this.__big = big; });
 }
-let zoomRaf = 0, lastK = 1;
+let lastK = 1;
 function rescaleMarks() {
-  zoomRaf = 0;
   if (muniSel) muniSel.attr("transform", d => `translate(${d.x},${d.y}) scale(${1 / K})`);
   if (K === lastK) return; // 移動だけなら印の大きさは変わらない
   lastK = K;
@@ -894,10 +892,18 @@ function rescaleMarks() {
   if (pinSel) pinSel.attr("transform", function (d) { return `translate(${d.x},${d.y}) scale(${1 / (this.__big ? Math.sqrt(K) : K)})`; });
   sizePicks();
 }
+// 拡大・移動: 動かしている間は SVG を 1 枚の絵として CSS の transform で動かすだけにし（描き直さない）、
+// 止まったら中身（gz）に変換をかけて、くっきり描き直す
+let gzT = d3.zoomIdentity; // いま gz にかかっている変換
 const zoom = d3.zoom().scaleExtent([1, 40])
-  .on("start", ev => { if (ev.sourceEvent) svg.classed("moving", true); })
-  .on("zoom", e => { gz.attr("transform", e.transform); K = e.transform.k; if (!zoomRaf) zoomRaf = requestAnimationFrame(rescaleMarks); })
-  .on("end", () => { svg.classed("moving", false); lastK = -1; rescaleMarks(); placeMuniLabels(); });
+  .on("start", () => { svg.node().style.willChange = "transform"; })
+  .on("zoom", e => { const t = e.transform, k = t.k / gzT.k; svg.node().style.transform = `translate(${t.x - gzT.x * k}px,${t.y - gzT.y * k}px) scale(${k})`; })
+  .on("end", () => {
+    const t = d3.zoomTransform(svg.node());
+    gzT = t; K = t.k; gz.attr("transform", t);
+    svg.node().style.transform = ""; svg.node().style.willChange = "";
+    lastK = -1; rescaleMarks(); placeMuniLabels();
+  });
 function sizePicks() { // マスが画面で小さいうちは小さな点、大きくなったら字の入った印
   if (!pickSel) return;
   const px = cellPx * K, big = px >= 22, sc = (big ? 1 : Math.max(0.28, px / 40)) / K;
@@ -1009,7 +1015,13 @@ async function drawDetail() {
     muniSel = muniLabels.selectAll("text").data(pts).join("text").text(d => d.name);
     placeMuniLabels();
   });
-  if (state.layers.rail) { if (RAIL) lineLayer.append("path").attr("class", "rail").attr("d", path({ type: "MultiLineString", coordinates: ui.pref === 47 ? RAIL.oki : RAIL.main })); else loadRail(); }
+  if (state.layers.rail) {
+    if (RAIL) { // その県の周り（0.3 度）にかかる線だけ
+      const [[x0, y0], [x1, y1]] = d3.geoBounds(P.main), m = 0.3;
+      const near = (ui.pref === 47 ? RAIL.oki : RAIL.main).filter(l => { const bb = RAIL.bb.get(l); return bb[2] >= x0 - m && bb[0] <= x1 + m && bb[3] >= y0 - m && bb[1] <= y1 + m; });
+      lineLayer.append("path").attr("class", "rail").attr("d", path({ type: "MultiLineString", coordinates: near }));
+    } else loadRail();
+  }
   if (state.layers.bus) loadBus(ui.pref).then(lines => { if (ui.view === "detail" && PREF[ui.pref] === P && state.layers.bus && lines.length) lineLayer.insert("path", ":first-child").attr("class", "busline").attr("d", path({ type: "MultiLineString", coordinates: lines })); });
   gz.append("path").attr("class", "outline").attr("d", path(P.f));
   const hint = document.getElementById("hint");
