@@ -602,7 +602,7 @@ function loadRail() { // 鉄道（国土数値情報 N02）。[[lon, lat], …] 
 }
 let BUSALL = null, busAllP = null;
 function loadBusAll() { // 全国の地図用の路線バス（200 m ほどで間引いたもの）
-  return busAllP ||= fetch("data/bus-all.json").then(r => r.json()).then(j => { BUSALL = { main: [], oki: [] }; for (const e of j.bus) { const pts = decodeLine(e, j.prec); (pts[0][1] < 27.5 && pts[0][0] < 129.5 ? BUSALL.oki : BUSALL.main).push(pts); } drawMap(true); }).catch(() => { busAllP = null; });
+  return busAllP ||= fetch("data/bus-all.json").then(r => r.json()).then(j => { BUSALL = { main: [], oki: [] }; for (const e of j.bus) { const pts = decodeLine(e, j.prec); (pts[0][1] < 27.5 && pts[0][0] < 129.5 ? BUSALL.oki : BUSALL.main).push(pts); } busKey = ""; drawBus(); }).catch(() => { busAllP = null; });
 }
 const muniData = new Map();
 function loadMuni(pid) { // 市区町村: [[名前, 緯度, 経度, [輪郭（符号化）]]]
@@ -1097,11 +1097,7 @@ function drawMap(keepZoom) {
   // 路線
   vis("nt-rail", state.layers.rail); vis("nt-bus", state.layers.bus);
   if (state.layers.rail) { if (RAIL) { if (!railSet) { setData("nt-rail", fc([{ type: "Feature", geometry: { type: "MultiLineString", coordinates: [...RAIL.main, ...RAIL.oki] }, properties: {} }])); railSet = true; } } else loadRail(); }
-  if (state.layers.bus) {
-    if (detail) { const pid = ui.pref; loadBus(pid).then(lines => { if (ui.view === "detail" && ui.pref === pid) setData("nt-bus", fc([{ type: "Feature", geometry: { type: "MultiLineString", coordinates: lines }, properties: {} }])); }); }
-    else if (BUSALL) setData("nt-bus", fc([{ type: "Feature", geometry: { type: "MultiLineString", coordinates: [...BUSALL.main, ...BUSALL.oki] }, properties: {} }]));
-    else loadBusAll();
-  }
+  drawBus();
   // 市区町村
   const muniOn = detail && state.layers.muni;
   vis("nt-muni", muniOn); vis("nt-muni-label", muniOn);
@@ -1123,6 +1119,25 @@ function drawMap(keepZoom) {
   firstView = false;
 }
 let cellCodes = null, railSet = false;
+// バス路線: 引いて見ているときは全国の間引いた形、拡大したら（BUS_FINE_Z 以上）画面にかかる県の細かい形（道に沿う）
+const BUS_FINE_Z = 8, prefBox = new Map();
+const boxOfPref = pid => prefBox.get(pid) || (prefBox.set(pid, bboxOf(PREF[pid].main)), prefBox.get(pid));
+let busKey = "";
+function drawBus() {
+  if (!mapReady || !state.layers.bus) { busKey = ""; return; }
+  const multi = lines => fc([{ type: "Feature", geometry: { type: "MultiLineString", coordinates: lines }, properties: {} }]);
+  if (mapgl.getZoom() < BUS_FINE_Z) {
+    if (!BUSALL) { loadBusAll(); return; }
+    if (busKey !== "all") { busKey = "all"; setData("nt-bus", multi([...BUSALL.main, ...BUSALL.oki])); }
+    return;
+  }
+  const b = mapgl.getBounds(), W0 = b.getWest(), E0 = b.getEast(), S0 = b.getSouth(), N0 = b.getNorth();
+  const pids = Object.keys(PREF).map(Number).filter(pid => { const [[x0, y0], [x1, y1]] = boxOfPref(pid); return x0 < E0 && x1 > W0 && y0 < N0 && y1 > S0; }).slice(0, 10);
+  const key = "f" + pids.join(",");
+  if (key === busKey) return;
+  busKey = key;
+  Promise.all(pids.map(loadBus)).then(all => { if (busKey === key && state.layers.bus) setData("nt-bus", multi(all.flat())); });
+}
 function fitView(animate) {
   const opt = { padding: { top: 40, bottom: 40, left: 30, right: 30 }, duration: animate && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 700 : 0, pitch: ui.view === "detail" && state.layers.b3d ? 50 : 0 };
   mapgl.fitBounds(ui.view === "detail" ? bboxOf(PREF[ui.pref].main) : JAPAN, opt);
@@ -1183,6 +1198,7 @@ function bindMapEvents() {
     } else hideTip();
   });
   mapgl.on("mouseout", hideTip);
+  mapgl.on("moveend", e => { if (!mapReady) return; drawBus(); if (e.originalEvent) autoView(); });
   mapgl.on("click", e => {
     if (!mapReady) return;
     const f = featureAt(e.point), p = f?.properties, map = curMap();
@@ -1201,6 +1217,27 @@ function bindMapEvents() {
     }
   });
 }
+// 全国と県を地図だけで行き来する（利用者「ボタンで切り替えは操作性が悪い」）
+// 指やホイールで動かし終えたとき: 拡大すると真ん中の県の画面に、隣の県へ動かすとその県に、引くと全国に
+const prefFitZoom = pid => mapgl.cameraForBounds(boxOfPref(pid), { padding: 40 })?.zoom ?? 7;
+const enterZ = pid => Math.min(6.3, prefFitZoom(pid) - 0.3), exitZ = pid => enterZ(pid) - 0.6;
+function prefAtCenter() {
+  const f = mapgl.queryRenderedFeatures(mapgl.project(mapgl.getCenter()), { layers: ["nt-pref-fill"] })[0];
+  return f ? +f.properties.id : null;
+}
+function autoView() {
+  if (selecting || (ui.view !== "over" && ui.view !== "detail")) return;
+  const z = mapgl.getZoom(), pid = prefAtCenter();
+  if (ui.view === "over") {
+    if (pid && z >= enterZ(pid)) { saveNav(); setPrefView(pid); pushNav("over", null, true); }
+  } else if (z < exitZ(ui.pref)) {
+    if (history.state?.auto && navIdx > 0) { silentPop = true; history.back(); }
+    else { ui.view = "over"; ui.pref = null; clearSel(); render(true); saveNav(); updateBack(); }
+  } else if (pid && pid !== ui.pref) { setPrefView(pid); saveNav(); }
+}
+const clearSel = () => { ui.cell = null; ui.spot = null; ui.hl = null; ui.q = ""; ui.line = null; ui.open = null; };
+function setPrefView(pid) { ui.view = "detail"; ui.pref = pid; clearSel(); render(true); }
+let silentPop = false;
 const tip = document.getElementById("tip");
 function showTip(ev, html) {
   const r = wrap.getBoundingClientRect();
@@ -1247,11 +1284,11 @@ function renderOverviewPanel() {
   panel.innerHTML = `
     <div class="sec ph">
       ${catChips(map.cats)}
-      <p class="note">${SIZES[map.size].label}（${SIZES[map.size].lvl}）・全国 ${S.total.toLocaleString()} ${SIZES[map.size].unit}${map.transitOnly ? "・公共交通で行った場所だけ塗る" : ""}。地図の県を押すと、県の中の場所が出ます。</p>
+      <p class="note">${SIZES[map.size].label}（${SIZES[map.size].lvl}）・全国 ${S.total.toLocaleString()} ${SIZES[map.size].unit}${map.transitOnly ? "・公共交通で行った場所だけ塗る" : ""}。地図を拡大するか県を押すと、その県の場所が出ます（動かすと隣の県へ、引くと全国へ）。</p>
       <ul class="bars">${bar("塗った", S.cells, S.total)}${bar("うち公共交通", S.tr, S.cells, "tr")}</ul>
     </div>
     <div class="sec"><h2>行きたい場所 ${wants.length}か所</h2>${wants.length ? `<ul class="list">${wants.slice(0, 5).map(([id, m]) => `<li class="row"><span class="mk cat-${CATS[m.c]?.k}">${CATS[m.c]?.mk}</span><div class="nm" data-goto="${esc(id)}" data-p="${m.p}" role="button" tabindex="0"><b>${m.top ? '<span class="star">★</span>' : ""}${esc(m.n)}</b><small>${PREF[m.p]?.name || ""}・${m.mu != null ? cellName(`U${m.p}:${m.mu}`) : cellName(m.m3.slice(0, 6))}</small></div></li>`).join("")}</ul>${wants.length > 5 ? `<p class="note"><button type="button" class="linkbtn" data-nav="list">マイリストですべて見る（${wants.length}か所）</button></p>` : ""}` : `<p class="note">場所の♡を押すと、ここに集まります。</p>`}</div>
-    <div class="sec"><h2>最近行った場所</h2>${recent ? `<ul class="list">${recent}</ul>` : `<p class="note">まだありません。地図の県を押して、行った場所の✓を押してください。</p>`}</div>
+    <div class="sec"><h2>最近行った場所</h2>${recent ? `<ul class="list">${recent}</ul>` : `<p class="note">まだありません。地図を拡大して、行った場所の✓を押してください。</p>`}</div>
     <div class="sec"><h2>地方ごとの足あと</h2><ul class="bars">${regions}</ul></div>
     <div class="sec"><h2>実績 ${TT.badges.size}/${BADGES.length}</h2><div class="badges">${badges}</div></div>`;
   panel.querySelectorAll("[data-goto]").forEach(el => { const go = () => selectResult({ p: +el.dataset.p, id: el.dataset.goto }); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
@@ -1563,9 +1600,9 @@ function render(keepZoom) {
 let navIdx = 0;
 const panelScrolls = () => panel.scrollHeight > panel.clientHeight + 1 && getComputedStyle(panel).overflowY !== "visible";
 const scrollPos = () => panelScrolls() ? panel.scrollTop : window.scrollY;
-const navState = (from, fromPref) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref });
+const navState = (from, fromPref, auto) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref, auto: auto === undefined ? !!history.state?.auto : auto });
 function saveNav() { try { history.replaceState(navState(), ""); } catch (e) {} }
-function pushNav(fromView, fromPref = null) { navIdx++; try { history.pushState(navState(fromView, fromPref), ""); } catch (e) {} updateBack(); }
+function pushNav(fromView, fromPref = null, auto = false) { navIdx++; try { history.pushState(navState(fromView, fromPref, auto), ""); } catch (e) {} updateBack(); }
 function updateBack() { // 戻り先の名前を出す
   const b = document.getElementById("back"), from = history.state?.from;
   b.textContent = from === "list" ? "← マイリスト" : from === "detail" && history.state?.fromPref && PREF[history.state.fromPref] ? `← ${PREF[history.state.fromPref].name}` : "← 全国";
@@ -1579,7 +1616,8 @@ addEventListener("popstate", e => {
   navIdx = st.i || 0;
   ui.view = st.view; ui.pref = st.pref; ui.spot = st.spot; ui.cell = null; ui.hl = null; ui.line = null; ui.q = "";
   if (st.list) ui.list = { ...st.list };
-  render();
+  const keep = silentPop; silentPop = false; // 地図を引いて全国に戻ったときは、地図をそのままに
+  render(keep);
   const y = st.scroll || 0; setTimeout(() => { if (panelScrolls()) panel.scrollTop = y; else window.scrollTo(0, y); }, 0);
   updateBack();
 });
