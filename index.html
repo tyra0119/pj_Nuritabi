@@ -652,6 +652,8 @@ async function departures(ref, near) { // ref = [提供元, 停留所名]。near
 const hhmm = t => { t = Math.floor(t / 60) % 1440; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
 
 // 運行情報（ODPT。1 分は使い回す）
+// 平常かどうか: 「平常」「通常」「ダイヤどおり」や「遅れ（遅延）はありません」は平常。「15分以上の遅延はありません」も平常（2026-10-07 実機で見つけた）
+const isNormalInfo = t => { const u = t.replace(/\s/g, ""); return /(遅延|遅れ)は(ありません|ございません)|平常|通常運転|ダイヤ(通り|どおり)/.test(u) && !/(見合わせ|運休|運転を見合|遅れが出|遅延が(発生|出))/.test(u); };
 let TINFO = null, tinfoAt = 0, tinfoP = null;
 function trainInfo() { // 同時に呼ばれても 1 回だけ取りに行く
   if (TINFO && Date.now() - tinfoAt < 60e3) return Promise.resolve(TINFO);
@@ -662,7 +664,7 @@ async function fetchTrainInfo() {
   const m = new Map();
   for (const r of res) if (r.status === "fulfilled" && Array.isArray(r.value)) for (const x of r.value) {
     const text = x["odpt:trainInformationText"]?.ja || "", rw = x["odpt:railway"];
-    if (rw && text) m.set(rw, { text, normal: /平常|通常|ダイヤ通り|遅れはありません/.test(text) && !/遅|見合|運休/.test(text.replace(/遅れはありません/, "")) });
+    if (rw && text) m.set(rw, { text, normal: isNormalInfo(text) });
   }
   if (!m.size && res.every(r => r.status === "rejected")) throw new Error("運行情報を取れませんでした");
   TINFO = m; tinfoAt = Date.now();
