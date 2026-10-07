@@ -95,7 +95,11 @@ a { color: var(--accent); }
 .legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11px; color: var(--muted); max-width: calc(100% - 24px); }
 .legend b.pin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; border: 1.5px solid var(--panel); box-shadow: 0 0 0 1px var(--border); }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--border); }
-.hint { position: absolute; top: 12px; right: 56px; max-width: 260px; font-size: 12px; color: var(--muted); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.sizeseg { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; box-shadow: 0 2px 8px rgb(0 0 0 / .12); z-index: 2; touch-action: none; }
+.sizeseg button, .sizeseg2 button { border: 0; background: transparent; padding: 5px 11px; font-size: 12px; white-space: nowrap; color: var(--ink); }
+.sizeseg button[aria-pressed="true"], .sizeseg2 button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.sizeseg2 { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.hint { position: absolute; top: 52px; right: 56px; max-width: 260px; font-size: 12px; color: var(--muted); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 .attr { position: absolute; right: 8px; bottom: 6px; font-size: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 75%, transparent); padding: 1px 6px; border-radius: 4px; }
 .attr a { color: inherit; }
 .tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 14px rgb(0 0 0 / .12); max-width: 260px; z-index: 3; }
@@ -364,6 +368,7 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
       <div id="map" role="region" aria-label="塗りつぶし地図"></div>
       <div class="loading" id="loading">地図を読み込んでいます…</div>
       <button class="backbtn" id="back" type="button" hidden>← 全国</button>
+      <div class="sizeseg" id="sizeseg" role="group" aria-label="マスの細かさ"></div>
       <div class="hint" id="hint" hidden></div>
       <div class="layers" id="layers">
         <label for="ly-rail"><input type="checkbox" id="ly-rail"><i style="border-color:var(--rail)"></i>鉄道</label>
@@ -1158,7 +1163,9 @@ function renderOverviewPanel() {
       <div id="bk-area"></div>
     </div>
     <div class="sec"><h2>この地図</h2>
-      <div class="btns"><button type="button" class="btn danger" id="map-del">この地図を消す</button></div>
+      <p class="note" style="margin-bottom:6px">マスの細かさは途中で変えられます。行った記録はそのままで、塗りが新しい細かさで描き直されます。</p>
+      <div class="sizeseg2" role="group" aria-label="マスの細かさ">${sizeButtons(map)}</div>
+      <div class="btns" style="margin-top:10px"><button type="button" class="btn danger" id="map-del">この地図を消す</button></div>
       <div id="del-area"></div>
       <p class="note" style="margin-top:6px">地図を消しても、行った記録は消えません。</p>
     </div>
@@ -1196,6 +1203,7 @@ function renderOverviewPanel() {
   document.getElementById("bk-save").onclick = saveFile;
   document.getElementById("bk-text").onclick = () => { document.getElementById("bk-area").innerHTML = `<p class="note">この文字をすべてコピーして、テキストファイルなどに保存してください。</p><textarea id="bk-ta" readonly></textarea>`; const ta = document.getElementById("bk-ta"); ta.value = exportText(); ta.select(); };
   document.getElementById("bk-file").onchange = e => readRestoreFile(e.target.files[0], document.getElementById("bk-area"));
+  panel.querySelectorAll("[data-setsize]").forEach(b => b.onclick = () => setMapSize(b.dataset.setsize));
   document.getElementById("map-del").onclick = () => {
     document.getElementById("del-area").innerHTML = `<div class="confirm">「${esc(map.name)}」を消しますか。<div class="btns"><button type="button" class="btn danger" id="del-yes">消す</button><button type="button" class="btn" id="del-no">やめる</button></div></div>`;
     document.getElementById("del-no").onclick = () => { document.getElementById("del-area").innerHTML = ""; };
@@ -1327,6 +1335,20 @@ async function renderDetailPanel() {
   if (ui.spot && !keepScroll) { const r = [...sec.querySelectorAll(".row")].find(x => x.dataset.id === ui.spot); if (r) { r.classList.add("flash"); r.scrollIntoView({ block: "nearest" }); } }
 }
 
+// マスの細かさを途中で変える。行った記録は 1 km マスで持っているので、塗りはそのまま新しい細かさで出せる
+const sizeButtons = map => Object.entries(SIZES).map(([k, z]) => `<button type="button" data-setsize="${k}" aria-pressed="${map.size === k}">${z.label}</button>`).join("");
+function setMapSize(k) {
+  const map = curMap(); if (!map || map.size === k || !SIZES[k]) return;
+  const old = map.size;
+  map.size = k;
+  // 自動で付いた名前に細かさが入っていれば、合わせて書き換える（重なるときは書き換えない）
+  const renamed = map.name.replace(SIZES[old].label, SIZES[k].label);
+  if (renamed !== map.name && !state.maps.some(m => m !== map && m.name === renamed)) map.name = renamed;
+  ui.cell = null; ui.line = null;
+  save(); rerenderKeep();
+  const S = summary(map);
+  toast(`マスの細かさを「${SIZES[k].label}」にしました。塗ったのは ${S.cells.toLocaleString()} / ${S.total.toLocaleString()} ${SIZES[k].unit}`);
+}
 function renderHeader() {
   const sel = document.getElementById("mapsel");
   sel.innerHTML = state.maps.map(m => `<option value="${esc(m.id)}"${m.id === state.cur ? " selected" : ""}>${esc(m.name)}</option>`).join("");
@@ -1343,6 +1365,9 @@ function renderHeader() {
   document.getElementById("ly-bus").checked = state.layers.bus;
   document.getElementById("ly-mine").checked = state.layers.mine;
   document.getElementById("ly-muni").checked = state.layers.muni;
+  const seg = document.getElementById("sizeseg");
+  seg.innerHTML = sizeButtons(map);
+  seg.querySelectorAll("[data-setsize]").forEach(b => b.onclick = () => setMapSize(b.dataset.setsize));
   document.getElementById("ly-muni-l").hidden = ui.view !== "detail";
   document.getElementById("ly-b3d").checked = state.layers.b3d;
   document.getElementById("ly-b3d-l").hidden = ui.view !== "detail" || !basemapOk;
