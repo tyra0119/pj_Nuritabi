@@ -1600,7 +1600,7 @@ function render(keepZoom) {
 let navIdx = 0;
 const panelScrolls = () => panel.scrollHeight > panel.clientHeight + 1 && getComputedStyle(panel).overflowY !== "visible";
 const scrollPos = () => panelScrolls() ? panel.scrollTop : window.scrollY;
-const navState = (from, fromPref, auto) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref, auto: auto === undefined ? !!history.state?.auto : auto });
+const navState = (from, fromPref, auto) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref, auto: ui.view === "detail" && (auto === undefined ? !!history.state?.auto : auto) });
 function saveNav() { try { history.replaceState(navState(), ""); } catch (e) {} }
 function pushNav(fromView, fromPref = null, auto = false) { navIdx++; try { history.pushState(navState(fromView, fromPref, auto), ""); } catch (e) {} updateBack(); }
 function updateBack() { // 戻り先の名前を出す
