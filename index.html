@@ -372,6 +372,15 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
 .toolbtn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 700; box-shadow: 0 2px 6px rgb(0 0 0 / .1); }
 .toolbtn[aria-expanded="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .layers { top: 50px; z-index: 3; }
+/* 地図の左: 種類ごとに印・点を一時的に出し入れ（塗る対象は変えない） */
+.catbar { position: absolute; left: 12px; top: 52px; display: flex; flex-direction: column; gap: 4px; z-index: 2; max-height: calc(100% - 150px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; touch-action: pan-y; }
+.catbar button { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 10px 3px 3px; font-size: 12px; color: var(--ink); box-shadow: 0 2px 6px rgb(0 0 0 / .1); cursor: pointer; white-space: nowrap; }
+.catbar button .mk { width: 22px; height: 22px; font-size: 11px; }
+.catbar button[aria-pressed="false"] { opacity: .55; background: color-mix(in srgb, var(--panel) 80%, transparent); box-shadow: none; }
+.catbar button[aria-pressed="false"] .mk { background: transparent; color: var(--c); box-shadow: inset 0 0 0 2px var(--c); }
+.catbar button[aria-pressed="false"] .cbl { text-decoration: line-through; }
+.catbar .cb-all { justify-content: center; padding: 3px 10px; font-weight: 700; }
+.catbar .mk.cat-out { --c: var(--muted); }
 .legend { z-index: 3; }
 .sizeseg { top: 12px; }
 /* 場所の行: 名前・最寄り、右に ♡（行きたい）と ✓（行った） */
@@ -417,6 +426,11 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
   .sizeseg button { padding: 5px 7px; font-size: 11px; }
   .maptools { top: 10px; left: 10px; }
   .layers { top: 46px; left: 10px; }
+  .catbar { left: 8px; top: 46px; max-height: calc(100% - 60px); }
+  .catbar button { padding: 3px; }
+  .catbar button .mk { width: 28px; height: 28px; font-size: 13px; }
+  .catbar button .cbl { display: none; } /* スマホは印だけ（地図を隠さないように） */
+  .catbar .cb-all { padding: 4px 6px; font-size: 11px; }
   .legend { left: 10px; right: 56px; bottom: auto; top: 46px; max-width: none; } /* 右の拡大・縮小ボタンに重ねない */
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
@@ -449,6 +463,7 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
         <label for="ly-mine"><input type="checkbox" id="ly-mine"><b class="pin" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c-matsuri)"></b>行きたい・行った場所</label>
       </div>
       <div class="legend" id="legend" hidden></div>
+      <div class="catbar" id="catbar" role="group" aria-label="地図に出す種類（一時的）" hidden></div>
       <div class="tip" id="tip" hidden></div>
     </section>
     <aside class="sheet" id="sheet" aria-label="地図の情報">
@@ -1095,6 +1110,7 @@ function drawMap(keepZoom) {
   if (!mapgl) initMap();
   drawLegend();
   if (!mapReady) return; // 地図ができたら onStyleLoad から呼ばれる
+  drawCatbar();
   hideTip();
   const map = curMap(); if (!map) return;
   const detail = mapDetail(), P = detail ? PREF[ui.pref] : null, C = n => cssVar(n);
@@ -1178,12 +1194,36 @@ function fitView(animate) {
   const opt = { padding: { top: 40, bottom: 40, left: 30, right: 30 }, duration: animate && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 700 : 0, pitch: ui.view === "detail" && state.layers.b3d ? 50 : 0 };
   mapgl.fitBounds(ui.view === "detail" ? bboxOf(PREF[ui.pref].main) : JAPAN, opt);
 }
+// 地図に出す種類の一時的な絞り込み（保存しない）。塗る対象・一覧はそのまま、地図の印と点だけ
+const hideCats = new Set(); // 種類のキー（"top" は★名所、"out" はこの地図の対象外）
+// 種類を消すと★名所でもその種類は消える。★を消すと★名所はどの種類でも消える
+const shownOnMap = (map, s) => {
+  if (!inMap(map, s)) return !hideCats.has("out");
+  if (hideCats.has(CATS[s.c].k)) return false;
+  if (s.top && hideCats.has("top")) return false;
+  return true;
+};
+function drawCatbar() {
+  const bar = document.getElementById("catbar"), map = curMap();
+  if (!map || !mapDetail() || !mapReady) { bar.hidden = true; return; }
+  const keys = [TOP, ...CATS].map(c => c.k).filter(k => map.cats.includes(k));
+  const out = state.layers.allSpots && state.layers.spots;
+  for (const k of [...hideCats]) if (!keys.includes(k) && !(k === "out" && out)) hideCats.delete(k); // 地図の種類が変わったら、無い種類の絞り込みは外す
+  if (keys.length + (out ? 1 : 0) < 2) { bar.hidden = true; return; } // 1 種類だけなら出さない
+  const btn = (k, mk, label) => `<button type="button" data-ck="${k}" aria-pressed="${!hideCats.has(k)}" title="${label}を地図に${hideCats.has(k) ? "出す" : "出さない"}"><span class="mk cat-${k}">${mk}</span><span class="cbl">${label}</span></button>`;
+  bar.innerHTML = keys.map(k => btn(k, catInfo(k).mk, catInfo(k).label)).join("") + (out ? btn("out", "外", "対象外") : "")
+    + (hideCats.size ? `<button type="button" class="cb-all" id="cb-all">全部</button>` : "");
+  bar.hidden = false;
+  bar.querySelectorAll("[data-ck]").forEach(b => b.onclick = () => { const k = b.dataset.ck; hideCats.has(k) ? hideCats.delete(k) : hideCats.add(k); redrawMarks(); });
+  document.getElementById("cb-all")?.addEventListener("click", () => { hideCats.clear(); redrawMarks(); });
+}
+function redrawMarks() { const d = prefData.get(ui.pref), map = curMap(); if (d && map) drawMarks(map, d); drawCatbar(); }
 function drawMarks(map, d) {
   const C = n => cssVar(n), feats = [];
   const colOf = s => C(`--c-${CATS[s.c].k}`);
   if (map.size !== "pref") { // まだ塗っていないマスのおすすめ
-    for (const [c, s] of picks(map, d)) feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, c, kind: "pick", mk: CATS[s.c].mk, fill: C("--panel"), stroke: isWant(s) ? C("--c-matsuri") : colOf(s), sw: isWant(s) ? 3 : 2, tcol: colOf(s), name: s.name, top: s.top ? 1 : 0 } });
-  } else for (const s of d.spots) if (inMap(map, s)) { // 県単位の地図は場所そのもの
+    for (const [c, s] of picks(map, d)) if (shownOnMap(map, s)) feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, c, kind: "pick", mk: CATS[s.c].mk, fill: C("--panel"), stroke: isWant(s) ? C("--c-matsuri") : colOf(s), sw: isWant(s) ? 3 : 2, tcol: colOf(s), name: s.name, top: s.top ? 1 : 0 } });
+  } else for (const s of d.spots) if (inMap(map, s) && shownOnMap(map, s)) { // 県単位の地図は場所そのもの
     const v = !!state.visits[s.id];
     feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, kind: "spot", mk: CATS[s.c].mk, fill: v ? colOf(s) : C("--panel"), stroke: v ? C("--panel") : colOf(s), sw: 2, tcol: v ? C("--marker-ink") : colOf(s), name: s.name, top: s.top ? 1 : 0 } });
   }
@@ -1201,6 +1241,7 @@ function drawSpots(map, d) {
     if (pk.has(s.id) || s.lat == null) continue;
     if (tgt && map.size === "pref") continue; // 県単位の地図は、対象の場所を印（nt-marks）で出している
     if (!tgt && (!state.layers.allSpots || s.c === CAT_IDX.bus)) continue; // 対象外のバス停は多すぎるので出さない
+    if (!shownOnMap(map, s)) continue; // 左の種類のボタンで一時的に消したもの
     const v = !!state.visits[s.id], col = C(`--c-${CATS[s.c].k}`);
     feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, kind: "spot", mk: CATS[s.c].mk, fill: v ? col : C("--panel"), stroke: v ? C("--panel") : col, tcol: v ? C("--marker-ink") : col, tr: s.c === CAT_IDX.station ? 1 : s.c === CAT_IDX.bus ? 2 : 0, out: tgt ? 0 : 1 } });
   }
