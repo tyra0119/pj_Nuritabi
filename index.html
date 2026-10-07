@@ -585,7 +585,6 @@ async function ensureMu() { // 市区町村の地図を開いたとき、番号�
 // 運行情報は ODPT を中継サーバ（https://tyra.jp/odpt/api/ 。トークンはサーバ側）から読む。どちらも取れなければ出さない
 const BT_BASE = new URL("../pj_BusTracker/", location.href).href;
 const RELAY = "https://tyra.jp/odpt/api";
-const btLink = (lat, lon) => `${BT_BASE}#map=16/${lat.toFixed(5)}/${lon.toFixed(5)}`;
 let SOURCES = null, BTIDX = null, btHol = null;
 const btBundles = new Map();
 const once = (fn) => { let p = null; return () => p ||= fn().catch(e => { p = null; throw e; }); };
@@ -731,14 +730,13 @@ async function fillHowto(el, s, d) {
       } catch (e) { err = true; }
     }
     const warn = st?.lines?.length && info ? st.lines.map(l => ({ l, i: info.get(d.lineIds.get(l)) })).filter(x => x.i && !x.i.normal) : [];
-    const link = st ? `<a href="${btLink(st.lat, st.lon)}" target="_blank" rel="noopener">BusTrackerで見る</a>` : "";
-    return `<div class="stop"><span class="sn">${x.rail || st?.c === CAT_IDX.station ? "駅" : "バス停"} ${esc(name)}<small>${walk}</small><small>${link}</small></span>
+    return `<div class="stop"><span class="sn">${x.rail || st?.c === CAT_IDX.station ? "駅" : "バス停"} ${esc(name)}<small>${walk}</small></span>
       ${warn.map(w => `<div class="tinfo"><b>${esc(w.l)}</b>${esc(w.i.text)}</div>`).join("")}
       ${deps ? (deps.list.length ? `<ul class="deps">${deps.list.map(v => `<li><time>${hhmm(v.t)}</time><span>${esc(v.to || "")} <span class="rt">${esc(v.route || "")}</span></span></li>`).join("")}</ul>${deps.sub ? `<small class="note">ダイヤの期間外のため、近い日の時刻です</small>` : ""}`
         : `<small class="note">これから 6 時間の便はありません</small>`)
-        : `<small class="note">${err ? "時刻表を読み込めませんでした" : st?.refs?.length ? "時刻表を読み込めませんでした（公開版の BusTracker のデータを使います）" : "時刻表のデータがありません"}</small>`}</div>`;
+        : `<small class="note">${err ? "時刻表を読み込めませんでした" : st?.refs?.length ? "時刻表を読み込めませんでした" : "時刻表のデータがありません"}</small>`}</div>`;
   }));
-  el.innerHTML = `<h3>行き方・次の便</h3>${parts.join("")}${cycleHtml(cyc)}<small class="note">時刻表：GTFS（BusTracker が集めたもの）。運行情報・シェアサイクル：公共交通オープンデータセンター。目安です。台数は予約ではありません。</small>`;
+  el.innerHTML = `<h3>行き方・次の便</h3>${parts.join("")}${cycleHtml(cyc)}<small class="note">時刻表：各事業者の GTFS。運行情報・シェアサイクル：公共交通オープンデータセンター。目安です。台数は予約ではありません。</small>`;
   bindCycles(el);
 }
 function fillHowtos(root, d) { root.querySelectorAll("[data-howto]").forEach(el => { const s = d.byId.get(el.dataset.howto); if (s) fillHowto(el, s, d); }); }
@@ -1218,7 +1216,7 @@ function renderOverviewPanel() {
       <p class="note">地図：<a href="https://www.gsi.go.jp/kankyochiri/gm_jpn.html" target="_blank" rel="noopener">地球地図日本</a>（国土地理院）を <a href="https://github.com/dataofjapan/land" target="_blank" rel="noopener">dataofjapan/land</a> が変換したもの。<br>
       観光地・温泉など：「国土数値情報（観光資源データ）」（国土交通省、2014年）を加工して作成。道の駅：「国土数値情報（道の駅データ）」（国土交通省、2019年1月時点）を加工して作成。<br>
       市区町村：「国土数値情報（行政区域データ）」（国土交通省、2025年、CC BY 4.0）を加工して作成。<br>
-      駅・バス停・運行情報：出典：公共交通オープンデータセンター。シェアサイクル（ドコモ・バイクシェア、HELLO CYCLING）のポートと台数も公共交通オープンデータセンターから。次の便は、BusTracker（同じ作者の全国バス・鉄道マップ）が集めた GTFS の時刻表から求めた目安です。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
+      駅・バス停・運行情報：出典：公共交通オープンデータセンター。シェアサイクル（ドコモ・バイクシェア、HELLO CYCLING）のポートと台数も公共交通オープンデータセンターから。次の便は、各事業者が公開している GTFS の時刻表から求めた目安です。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
       <details id="srcdet"><summary>交通データの提供元をすべて見る</summary><ol class="srclist" id="srclist"><li>読み込み中…</li></ol></details>
     </div>`;
   panel.querySelectorAll("[data-pref]").forEach(el => el.onclick = () => selectResult({ type: "pref", p: +el.dataset.pref }));
