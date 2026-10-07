@@ -994,6 +994,18 @@ function cellGeom(c) { // マスの形。市区町村は境界（読み込んで
   const pid = +c.slice(1, c.indexOf(":")), m = MUNIGEO.get(pid)?.[+c.slice(c.indexOf(":") + 1)];
   return m ? { type: "MultiPolygon", coordinates: m.rings.map(r => [r]) } : null;
 }
+// マス（市区町村）を選んだら、その形の全体が地図の真ん中に収まるように寄せる（利用者「市区町村を選択したら、真ん中に全体が表示されるように」）
+// 下のシートの分は地図の padding（applySheetPad）で除かれる。左の種類のボタンの分は左を空ける
+function fitCell(c) {
+  const g = cellGeom(c); if (!g || !mapReady) return;
+  let a = 180, b = 90, x = -180, y = -90;
+  const walk = v => { if (typeof v[0] === "number") { if (v[0] < a) a = v[0]; if (v[0] > x) x = v[0]; if (v[1] < b) b = v[1]; if (v[1] > y) y = v[1]; } else v.forEach(walk); };
+  walk(g.coordinates);
+  // 凡例を開いていれば、その分も空ける（PC は地図の下、スマホは上に出る）
+  const bar = document.getElementById("catbar"), lg = document.getElementById("legend"), lgH = lg.hidden ? 0 : lg.offsetHeight + 12;
+  const left = bar.hidden ? 24 : bar.offsetWidth + 24, top = (isSheet() ? 56 : 60) + (isSheet() ? lgH : 0), bottom = 24 + (isSheet() ? 0 : lgH);
+  mapgl.fitBounds([[a, b], [x, y]], { padding: { top, bottom, left, right: 24 }, maxZoom: 15, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 600 });
+}
 const cellFeat = (c, props = {}) => { const g = cellGeom(c); return g ? { type: "Feature", geometry: g, properties: { c, ...props } } : null; };
 const feats = list => fc(list.filter(Boolean));
 function bboxOf(geom) { const [[x0, y0], [x1, y1]] = d3.geoBounds(geom); return [[x0, y0], [x1, y1]]; }
@@ -1309,8 +1321,8 @@ function bindMapEvents() {
       ui.cell = map.size === "pref" || !inMap(map, s) ? null : cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu });
       setOnCell(ui.cell); selectSpot(s.id); drawPins(); return;
     }
-    if (f.layer.id === "nt-cells" && ui.view === "detail" && p.st === -1) { toast(`${esc(cellName(p.c))}には、この地図の対象の場所がありません。塗るものの種類はメニューで足せます`); return; }
-    if (f.layer.id === "nt-cells" && ui.view === "detail") { ui.cell = ui.cell === p.c ? null : p.c; ui.spot = null; renderPanel(); setOnCell(ui.cell); return; }
+    if (f.layer.id === "nt-cells" && ui.view === "detail" && p.st === -1) { toast(`${esc(cellName(p.c))}には、この地図の対象の場所がありません。塗るものの種類はメニューで足せます`); fitCell(p.c); return; }
+    if (f.layer.id === "nt-cells" && ui.view === "detail") { ui.cell = ui.cell === p.c ? null : p.c; ui.spot = null; renderPanel(); setOnCell(ui.cell); if (ui.cell) fitCell(ui.cell); return; }
     if (f.layer.id === "nt-pref-fill") {
       if (ui.view !== "detail") return selectResult({ type: "pref", p: p.id });
       if (p.id !== ui.pref) return openPref(p.id);
