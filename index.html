@@ -242,6 +242,9 @@ a { color: var(--accent); }
 .stop .sn .sk { font-size: 10px; font-weight: 700; color: var(--panel); background: var(--muted); border-radius: 4px; padding: 1px 5px; }
 .stop .lines { color: var(--muted); font-size: 11px; }
 .howto-lead { margin: 0; }
+.backdeps summary { cursor: pointer; font-size: 11px; font-weight: 700; color: var(--muted); padding: 2px 0; }
+.backdeps[open] summary { margin-bottom: 2px; }
+.routebtn { display: block; text-align: center; text-decoration: none; margin-top: 2px; }
 .dephead { margin: 2px 0 0; font-size: 11px; font-weight: 700; color: var(--muted); }
 .deps.trn li { grid-template-columns: 4.4em minmax(0, 1fr) auto; align-items: baseline; }
 .deps.trn time small { font-size: 10px; font-weight: 400; margin-left: 1px; color: var(--muted); }
@@ -781,7 +784,8 @@ async function departures(ref, near) { // ref = [提供元, 停留所名]。near
     }
   }
   out.sort((a, b) => a.t - b.t);
-  return { list: out.slice(0, 4), sub: today.sub, feed: raw.__meta.name, org: raw.__meta.org };
+  const routes = [...new Set(raw.pats.filter((p, i) => pos[i].length).map(p => { const rt = raw.routes[p[0]]; return rt[1] || rt[0]; }).filter(Boolean))]; // この停留所に止まる系統・路線
+  return { list: out.slice(0, 4), sub: today.sub, feed: raw.__meta.name, org: raw.__meta.org, routes };
 }
 const hhmm = t => { t = Math.floor(t / 60) % 1440; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
 
@@ -852,10 +856,11 @@ function stopsFor(s, d) {
   if (n && n[2]) out.push({ stop: nearest(CAT_IDX.bus, n[2]), name: n[2], dist: n[3] });
   return out;
 }
-function howtoHtml(s) { return `<div class="howto" data-howto="${esc(s.id)}"><h3>行き方</h3><p class="note">最寄りの駅・バス停と次の便を調べています…</p></div>`; }
+function howtoHtml(s) { return `<div class="howto" data-howto="${esc(s.id)}"><h3>ここへの行き方</h3><p class="note">近くの駅・バス停を調べています…</p></div>`; }
 async function fillHowto(el, s, d) {
   const stops = stopsFor(s, d), cyc = nearCycles(s, d);
-  if (!stops.length && !cyc.length) { el.innerHTML = `<h3>行き方</h3><p class="note">近く（駅 2km・バス停 1km・シェアサイクル 500m 以内）に、データのある駅・バス停・ポートがありません。</p>`; return; }
+  const routeBtn = s.lat != null ? `<a class="btn routebtn" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}&travelmode=transit" target="_blank" rel="noopener">今いる場所からの経路を調べる（Google マップ）</a>` : "";
+  if (!stops.length && !cyc.length) { el.innerHTML = `<h3>ここへの行き方</h3><p class="note">近く（駅 2km・バス停 1km・シェアサイクル 500m 以内）に、データのある駅・バス停・ポートがありません。</p>${routeBtn}`; return; }
   let info = null; try { info = await trainInfo(); } catch (e) {}
   const parts = await Promise.all(stops.map(async x => {
     const st = x.stop, name = st?.name || x.name, walk = x.dist ? `歩いて約${Math.max(1, Math.round(x.dist / 80))}分（${x.dist}m）` : "";
@@ -863,22 +868,25 @@ async function fillHowto(el, s, d) {
     if (st?.refs?.length) {
       try {
         const rs = (await Promise.all(st.refs.slice(0, 4).map(r => departures([r[0], r[1] || st.name], [st.lat, st.lon]).catch(() => null)))).filter(Boolean);
-        if (rs.length) deps = { list: rs.flatMap(r => r.list).sort((a, b) => a.t - b.t).slice(0, 4), sub: rs.some(r => r.sub), orgs: [...new Set(rs.map(r => (r.org || r.feed || "").replace(/\s*(鉄道|バス)?関連情報$/, "").trim()).filter(Boolean))] };
+        if (rs.length) deps = { list: rs.flatMap(r => r.list).sort((a, b) => a.t - b.t).slice(0, 4), sub: rs.some(r => r.sub), routes: [...new Set(rs.flatMap(r => r.routes || []))], orgs: [...new Set(rs.map(r => (r.org || r.feed || "").replace(/\s*(鉄道|バス)?関連情報$/, "").trim()).filter(Boolean))] };
       } catch (e) { err = true; }
     }
     const warn = st?.lines?.length && info ? st.lines.map(l => ({ l, i: info.get(d.lineIds.get(l)) })).filter(x => x.i && !x.i.normal) : [];
     // 何の時刻か分かるように: 「〇〇駅から出る次の便」「11:46 発 → 大崎 行き（山手線）・あと 5 分」、時刻表の提供元
     const isRail = x.rail || st?.c === CAT_IDX.station, kind = isRail ? "駅" : "バス停";
     const now = jstNow().sec, until = t => { const m = Math.round((t - now) / 60); return m <= 0 ? "まもなく" : m < 60 ? `あと${m}分` : `あと${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ""}`; };
-    const lines = st?.lines?.length ? `<small class="lines">${esc(st.lines.slice(0, 4).join("・"))}${st.lines.length > 4 ? ` ほか${st.lines.length - 4}路線` : ""}</small>` : "";
-    return `<div class="stop"><div class="sn"><span class="sk">${kind}</span><b>${esc(name)}</b><small>${walk ? `この場所まで${walk}` : ""}</small></div>${lines}
-      ${warn.map(w => `<div class="tinfo"><b>${esc(w.l)}</b>${esc(w.i.text)}</div>`).join("")}
-      ${deps ? (deps.list.length ? `<p class="dephead">${esc(name)}から出る次の便</p><ul class="deps trn">${deps.list.map(v => `<li><time>${hhmm(v.t)}<small>発</small></time><span>${v.to ? `<b>${esc(v.to)}</b> 行き` : "（行き先なし）"}${v.route ? ` <span class="rt">${esc(v.route)}</span>` : ""}</span><small class="until">${until(v.t)}</small></li>`).join("")}</ul>
-          <small class="note">${deps.sub ? "今日はダイヤの期間外なので、近い同じ曜日の時刻です。" : ""}時刻表：${esc(deps.orgs.join("・") || "事業者")}（GTFS）</small>`
+    // ここへの行き方: 「〇〇駅で降りて、歩いて約5分」＋その駅・バス停に止まる路線・系統。時刻は「帰りの便」として畳む
+    const via = isRail ? (st?.lines || []) : (deps?.routes || []);
+    const viaTxt = via.length ? `<small class="lines">${isRail ? "止まる路線" : "止まる系統"}：${esc(via.slice(0, 5).join("・"))}${via.length > 5 ? ` ほか${via.length - 5}` : ""}</small>` : "";
+    const back = deps ? (deps.list.length ? `<details class="backdeps"><summary>帰りの便：${esc(name)}から出る次の便（${hhmm(deps.list[0].t)} 発〜）</summary><ul class="deps trn">${deps.list.map(v => `<li><time>${hhmm(v.t)}<small>発</small></time><span>${v.to ? `<b>${esc(v.to)}</b> 行き` : "（行き先なし）"}${v.route ? ` <span class="rt">${esc(v.route)}</span>` : ""}</span><small class="until">${until(v.t)}</small></li>`).join("")}</ul>
+          <small class="note">いまから 6 時間、4 本まで。${deps.sub ? "今日はダイヤの期間外なので、近い同じ曜日の時刻です。" : ""}時刻表：${esc(deps.orgs.join("・") || "事業者")}（GTFS）</small></details>`
         : `<small class="note">${esc(name)}から、これから 6 時間に出る便はありません。</small>`)
-        : `<small class="note">${err || st?.refs?.length ? "時刻表を読み込めませんでした。" : `この${kind}の時刻表データはありません（公開されていない事業者です）。`}</small>`}</div>`;
+        : `<small class="note">${err || st?.refs?.length ? "時刻表を読み込めませんでした。" : `この${kind}の時刻表データはありません。`}</small>`;
+    return `<div class="stop"><div class="sn"><span class="sk">${isRail ? "電車" : "バス"}</span><span><b>${esc(name)}</b>で降りて、${walk || "すぐ"}</span></div>${viaTxt}
+      ${warn.map(w => `<div class="tinfo"><b>${esc(w.l)}</b>${esc(w.i.text)}</div>`).join("")}${back}</div>`;
   }));
-  el.innerHTML = `<h3>行き方・次の便</h3><p class="note howto-lead">この場所にいちばん近い駅・バス停と、そこから出る次の便（いまから 6 時間、4 本まで）です。帰りの便や、本数の目安に。</p>${parts.join("")}${cycleHtml(cyc)}<small class="note">運行情報・シェアサイクル：公共交通オープンデータセンター。時刻は目安です。台数は予約ではありません。</small>`;
+  // 今いる場所からの乗り換えは、経路検索に任せる（行き先の座標だけを渡す）
+  el.innerHTML = `<h3>ここへの行き方</h3><p class="note howto-lead">近くの駅・バス停で降りて歩きます。乗り換えは「経路を調べる」で。</p>${parts.join("")}${cycleHtml(cyc)}${routeBtn}<small class="note">運行情報・シェアサイクル：公共交通オープンデータセンター。時刻は目安です。台数は予約ではありません。</small>`;
   bindCycles(el);
 }
 function fillHowtos(root, d) { root.querySelectorAll("[data-howto]").forEach(el => { const s = d.byId.get(el.dataset.howto); if (s) fillHowto(el, s, d); }); }
