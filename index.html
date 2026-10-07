@@ -1265,11 +1265,13 @@ function drawMap(keepZoom) {
   setData("nt-prefs", fc(FEATURES.map(f => {
     const pid = f.properties.id, n = S.F[pid]?.all.size || 0, lv = level(n, targets(map, pid).size);
     let fill = lvCol[lv], op = lv ? 0.55 : basemapOk ? 0 : 1;
+    // 県を押した・選んだとき（ui.picked）だけ、その県の太い枠と、ほかの県を薄く暗くする。地図を動かしただけで県の画面になったときは付けない（利用者「クリックせずスクロールしている場合、選択状態にしなくていい」）
     if (detail) {
       if (pid === ui.pref) { op = map.size === "pref" && lv ? 0.35 : basemapOk ? 0 : 1; if (!lv) fill = C("--land"); }
-      else { fill = C("--land-dim"); op = basemapOk ? 0.45 : 1; }
+      else if (ui.picked) { fill = C("--land-dim"); op = basemapOk ? 0.45 : 1; }
+      else { op = lv ? 0.35 : basemapOk ? 0 : 1; }
     }
-    return { type: "Feature", geometry: f.geometry, properties: { id: pid, name: PREF[pid].name, fill, op, sel: pid === ui.pref ? 1 : 0, lv } };
+    return { type: "Feature", geometry: f.geometry, properties: { id: pid, name: PREF[pid].name, fill, op, sel: pid === ui.pref && ui.picked ? 1 : 0, lv } };
   })));
   // マス・格子
   cellCodes = null;
@@ -1461,6 +1463,7 @@ function bindMapEvents() {
     if (f.layer.id === "nt-pref-fill") {
       if (ui.view !== "detail") return selectResult({ type: "pref", p: p.id });
       if (p.id !== ui.pref) return openPref(p.id);
+      if (!ui.picked) { ui.picked = true; saveNav(); drawMap(true); } // 動かして来た県を押したら、選んだ状態に
     }
   });
 }
@@ -1483,7 +1486,7 @@ function autoView() {
   } else if (pid && pid !== ui.pref) { setPrefView(pid); saveNav(); }
 }
 const clearSel = () => { ui.cell = null; ui.spot = null; ui.hl = null; ui.q = ""; ui.line = null; ui.open = null; };
-function setPrefView(pid) { ui.view = "detail"; ui.pref = pid; clearSel(); render(true); }
+function setPrefView(pid) { ui.view = "detail"; ui.pref = pid; ui.picked = false; clearSel(); render(true); }
 let silentPop = false;
 const tip = document.getElementById("tip");
 function showTip(ev, html) {
@@ -1891,7 +1894,7 @@ function render(keepZoom) {
 let navIdx = 0;
 const panelScrolls = () => panel.scrollHeight > panel.clientHeight + 1 && getComputedStyle(panel).overflowY !== "visible";
 const scrollPos = () => panelScrolls() ? panel.scrollTop : window.scrollY;
-const navState = (from, fromPref, auto) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref, auto: ui.view === "detail" && (auto === undefined ? !!history.state?.auto : auto) });
+const navState = (from, fromPref, auto) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, picked: ui.picked, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref, auto: ui.view === "detail" && (auto === undefined ? !!history.state?.auto : auto) });
 function saveNav() { try { history.replaceState(navState(), ""); } catch (e) {} }
 function pushNav(fromView, fromPref = null, auto = false) { navIdx++; try { history.pushState(navState(fromView, fromPref, auto), ""); } catch (e) {} updateBack(); }
 // 見出しの「← 全国」はいつも全国へ（利用者「右上の『←xx』は、全国に戻るでいい」）。一つ前の画面へはスマホ・ブラウザの戻る
@@ -1909,7 +1912,7 @@ function goBack() {
 addEventListener("popstate", e => {
   const st = e.state; if (!st?.nt || !IDX) return;
   navIdx = st.i || 0;
-  ui.view = st.view; ui.pref = st.pref; ui.spot = st.spot; ui.cell = null; ui.hl = null; ui.line = null; ui.q = "";
+  ui.view = st.view; ui.pref = st.pref; ui.picked = st.picked ?? true; ui.spot = st.spot; ui.cell = null; ui.hl = null; ui.line = null; ui.q = "";
   if (st.list) ui.list = { ...st.list };
   const keep = silentPop; silentPop = false; // 地図を引いて全国に戻ったときは、地図をそのままに
   render(keep);
@@ -1918,7 +1921,7 @@ addEventListener("popstate", e => {
 });
 function openPref(id) {
   const from = ui.view, fromPref = ui.pref; saveNav();
-  ui.view = "detail"; ui.pref = id; ui.cell = null; ui.spot = null; ui.hl = null; ui.q = ""; ui.line = null; render();
+  ui.view = "detail"; ui.pref = id; ui.picked = true; ui.cell = null; ui.spot = null; ui.hl = null; ui.q = ""; ui.line = null; render();
   pushNav(from, fromPref);
   setSheet("half");
 }
