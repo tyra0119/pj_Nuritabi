@@ -52,7 +52,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :is(button, textarea, input, select, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 a { color: var(--accent); }
-.app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); height: 100%; }
+.app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); height: 100%; }
 
 /* ---- header ---- */
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -132,7 +132,6 @@ a { color: var(--accent); }
 .layers { position: absolute; left: 12px; top: 52px; display: flex; flex-direction: column; gap: 4px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
 .layers label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .layers i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; }
-.over-layers { top: 12px; }
 .dot.f { fill: var(--fill); } .dot.tr { fill: var(--fill-tr); }
 .inset { fill: none; stroke: var(--border); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .insetlabel { font-size: 11px; fill: var(--muted); }
@@ -331,57 +330,126 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
 .toast b { color: var(--lv4); font-family: var(--font-d); font-weight: 400; margin-right: 6px; }
 @keyframes tin { from { transform: translateY(12px); opacity: 0; } }
 
+
+/* ===== 画面の骨組み（2026-10-07 作り直し）: 上は 1 行、地図は大きく、情報は右（PC）か下から引き出すシート（スマホ） ===== */
+.bar { flex-wrap: nowrap; gap: 10px; padding: 8px 12px; }
+.bar .logo { font-size: 20px; flex: none; }
+#mapsel { min-width: 0; flex: 0 1 auto; max-width: 40ch; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 5px 8px; font-weight: 700; }
+.toptabs { display: inline-flex; margin-left: auto; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.toptabs button { border: 0; background: transparent; padding: 6px 14px; font-size: 13px; }
+.toptabs button[aria-current="page"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.iconbtn#menu { display: grid; place-items: center; width: 38px; height: 34px; padding: 0; flex: none; }
+.main { position: relative; }
+.sheet { min-height: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+.sheet .panel { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border: 0; }
+.sheet-grip { display: none; }
+.sheet-head { padding: 12px 16px 8px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
+.sh-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sheet-head .backbtn { position: static; flex: none; padding: 4px 10px; font-size: 12px; }
+.sh-title { min-width: 0; font-family: var(--font-d); font-size: 20px; line-height: 1.25; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.sh-title .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-title .pill { font-family: var(--font-b); flex: none; }
+.sh-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sh-stats b { font-family: var(--font-d); font-weight: 400; font-size: 15px; color: var(--ink); margin-right: 1px; }
+.sh-stats i { font-style: normal; }
+.sh-stats .tr b { color: var(--fill-tr); }
+.tabbar { display: none; }
+.maptools { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; z-index: 3; }
+.toolbtn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 700; box-shadow: 0 2px 6px rgb(0 0 0 / .1); }
+.toolbtn[aria-expanded="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.layers { top: 50px; z-index: 3; }
+.legend { z-index: 3; }
+.sizeseg { top: 12px; }
+/* 場所の行: 名前・最寄り、右に ♡（行きたい）と ✓（行った） */
+.row { flex-wrap: wrap; gap: 4px 8px; }
+.row .nm { flex: 1 1 0; cursor: pointer; }
+.ib { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--panel); border-radius: 50%; color: var(--muted); padding: 0; }
+.ib svg { width: 18px; height: 18px; }
+.ib.heart[aria-pressed="true"] { color: var(--c-matsuri); border-color: var(--c-matsuri); background: color-mix(in srgb, var(--c-matsuri) 12%, var(--panel)); }
+.ib.check.tr { color: var(--marker-ink); background: var(--fill-tr); border-color: var(--fill-tr); }
+.ib.check.car { color: var(--marker-ink); background: var(--fill); border-color: var(--fill); }
+.ib.check[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--accent); }
+.ib.ghost { visibility: hidden; }
+.more { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 4px 34px; }
+.more .go { padding: 7px 12px; font-size: 13px; }
+.more .mark { padding: 6px 12px; font-size: 13px; }
+.more .done-l { font-size: 12px; font-weight: 700; }
+.more .done-l.tr { color: var(--fill-tr); } .more .done-l.car { color: var(--fill); }
+.more input[type="date"] { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 4px 6px; }
+.selcard .x { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 0; text-decoration: underline; justify-self: end; }
+.selcard .lblrow { display: flex; justify-content: space-between; align-items: center; }
+.menu-sec h2 { margin-top: 4px; }
+.prefline { margin: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.prefline b { font-family: var(--font-d); font-weight: 400; font-size: 16px; color: var(--ink); }
+.prefline b.tr { color: var(--fill-tr); }
 @media (max-width: 820px) {
-  html, body { height: auto; }
-  .app { height: auto; }
-  .main { grid-template-columns: minmax(0, 1fr); }
-  .mapwrap { height: 60svh; min-height: 340px; }
-  .panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
-  .stats { margin-left: 0; gap: 16px; }
-  .stat b { font-size: 20px; }
-  .hint { display: none; }
+  html, body { height: 100%; overflow: hidden; }
+  .app { height: 100%; }
+  .toptabs { display: none; }
+  #mapsel { flex: 1 1 auto; max-width: none; }
+  .main { display: block; overflow: hidden; }
+  .mapwrap { position: absolute; inset: 0; height: auto; min-height: 0; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; height: var(--sheet-h, 45%); border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .18); z-index: 5; transition: height .22s ease; }
+  .sheet.dragging { transition: none; }
+  .sheet-grip { display: grid; place-items: center; height: 18px; cursor: grab; touch-action: none; }
+  .sheet-grip span { width: 40px; height: 5px; border-radius: 3px; background: var(--border); }
+  .sheet-head { padding: 0 14px 8px; touch-action: none; }
+  .sheet .panel { padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+  .tabbar { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); background: var(--panel); padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 6; }
+  .tabbar button { border: 0; background: transparent; display: grid; justify-items: center; gap: 2px; padding: 6px 0 7px; font-size: 11px; color: var(--muted); }
+  .tabbar button[aria-current="page"] { color: var(--accent); font-weight: 700; }
+  .toasts { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .sizeseg { top: 10px; left: auto; right: 56px; transform: none; }
+  .sizeseg button { padding: 5px 7px; font-size: 11px; }
+  .maptools { top: 10px; left: 10px; }
+  .layers { top: 46px; left: 10px; }
+  .legend { left: 10px; right: 10px; bottom: auto; top: 46px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 
 <div class="app">
   <header class="bar">
-    <div class="brand"><span class="logo">ぬりたび</span></div>
-    <div class="mapsel">
-      <label for="mapsel" class="note">地図</label>
-      <select id="mapsel"></select>
-      <button type="button" class="iconbtn" id="newmap">＋ 新しい地図</button>
-      <button type="button" class="iconbtn" id="mylist">マイリスト</button>
-    </div>
-    <div class="gsearch">
-      <input type="search" id="gq" placeholder="全国から場所を探す（例：草津温泉）" aria-label="全国から場所を探す" autocomplete="off">
-      <div class="gres" id="gres" hidden></div>
-    </div>
-    <div class="stats">
-      <div class="stat"><b id="st-pref">0</b><span>/47</span><small>都道府県</small></div>
-      <div class="stat"><b id="st-cell">0</b><span id="st-cell-t">/0</span><small id="st-cell-l">マス</small></div>
-      <div class="stat tr"><b id="st-tr">0</b><span>%</span><small>公共交通で塗った</small></div>
-    </div>
+    <span class="logo">ぬりたび</span>
+    <select id="mapsel" aria-label="地図を切り替える"></select>
+    <nav class="toptabs" aria-label="画面">
+      <button type="button" data-nav="map">地図</button><button type="button" data-nav="list">マイリスト</button><button type="button" data-nav="search">探す</button>
+    </nav>
+    <button type="button" class="iconbtn" id="menu" aria-label="メニュー" title="メニュー"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
   </header>
-  <main class="main">
+  <main class="main" id="main">
     <section class="mapwrap" id="mapwrap">
       <div id="map" role="region" aria-label="塗りつぶし地図"></div>
       <div class="loading" id="loading">地図を読み込んでいます…</div>
-      <button class="backbtn" id="back" type="button" hidden>← 全国</button>
       <div class="sizeseg" id="sizeseg" role="group" aria-label="マスの細かさ"></div>
-      <div class="hint" id="hint" hidden></div>
-      <div class="layers" id="layers">
+      <div class="maptools">
+        <button type="button" class="toolbtn" id="t-layers" aria-expanded="false" aria-controls="layers">表示</button>
+        <button type="button" class="toolbtn" id="t-legend" aria-expanded="false" aria-controls="legend">凡例</button>
+      </div>
+      <div class="layers" id="layers" hidden>
         <label for="ly-rail"><input type="checkbox" id="ly-rail"><i style="border-color:var(--rail)"></i>鉄道</label>
         <label for="ly-bus" id="ly-bus-l"><input type="checkbox" id="ly-bus"><i style="border-color:var(--bus)"></i>バス路線</label>
         <label for="ly-muni" id="ly-muni-l"><input type="checkbox" id="ly-muni"><i style="border-color:var(--muted);border-top-style:dashed"></i>市区町村</label>
         <label for="ly-b3d" id="ly-b3d-l"><input type="checkbox" id="ly-b3d"><i style="border-color:var(--ink);border-top-width:4px"></i>3Dの建物</label>
         <label for="ly-mine"><input type="checkbox" id="ly-mine"><b class="pin" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c-matsuri)"></b>行きたい・行った場所</label>
       </div>
-      <div class="legend" id="legend"></div>
+      <div class="legend" id="legend" hidden></div>
       <div class="tip" id="tip" hidden></div>
     </section>
-    <aside class="panel" id="panel"></aside>
+    <aside class="sheet" id="sheet" aria-label="地図の情報">
+      <div class="sheet-grip" id="sheet-grip" aria-hidden="true"><span></span></div>
+      <div class="sheet-head" id="sheet-head">
+        <div class="sh-row"><button class="backbtn" id="back" type="button" hidden>← 全国</button><div class="sh-title" id="sh-title"></div></div>
+        <div class="sh-stats"><span><b id="st-pref">0</b>/47 都道府県</span><span><b id="st-cell">0</b><i id="st-cell-t">/0</i> <i id="st-cell-l">マス</i></span><span class="tr">公共交通 <b id="st-tr">0</b>%</span></div>
+      </div>
+      <div class="panel" id="panel"></div>
+    </aside>
   </main>
+  <nav class="tabbar" id="tabbar" aria-label="画面">
+    <button type="button" data-nav="map"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>地図</button>
+    <button type="button" data-nav="list"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>マイリスト</button>
+    <button type="button" data-nav="search"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>探す</button>
+  </nav>
   <div class="toasts" id="toasts" aria-live="polite"></div>
 </div>
 
@@ -524,7 +592,7 @@ async function boot() {
     return;
   }
   document.getElementById("loading").hidden = true;
-  if (!state.maps.length) openSetup(); else render();
+  if (!state.maps.length) openSetup(); else { render(); setSheet(ui.view === "over" ? "peek" : "half"); }
   try { history.replaceState(navState(null, null), ""); } catch (e) {}
 }
 function decodeLine(str, prec = 1e4) { let i = 0, lat = 0, lon = 0; const o = []; while (i < str.length) { for (const k of [0, 1]) { let r = 0, sh = 0, b; do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); const d = (r & 1) ? ~(r >> 1) : (r >> 1); if (k) lon += d; else lat += d; } o.push([lon / prec, lat / prec]); } return o; }
@@ -546,7 +614,7 @@ const busData = new Map();
 async function loadBus(pid) {
   if (busData.has(pid)) return busData.get(pid);
   let lines = [];
-  try { const j = await fetch(`data/l/${String(pid).padStart(2, "0")}.json`).then(r => { if (!r.ok) throw 0; return r.json(); }); lines = j.bus.map(e => decodeLine(e)); } catch (e) {}
+  try { const j = await fetch(`data/l/${String(pid).padStart(2, "0")}.json`).then(r => { if (!r.ok) throw 0; return r.json(); }); lines = j.bus.map(e => decodeLine(e, j.prec || 1e4)); } catch (e) {}
   busData.set(pid, lines);
   return lines;
 }
@@ -877,7 +945,7 @@ const BASE_STYLE = { light: "https://basemaps.cartocdn.com/gl/positron-gl-style/
 const JAPAN = [[122.9, 24.0], [146.0, 45.6]];
 const isDark = () => document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-let mapgl = null, mapReady = false, basemapOk = true, fallbackUsed = false, textFont = ["Open Sans Regular"], beforeId, firstView = true;
+let mapgl = null, mapReady = false, basemapOk = true, fallbackUsed = false, textFont = ["Open Sans Regular"], beforeId, lineBefore, firstView = true;
 const PIN = { want: { label: "行きたい", t: "行", col: "--c-matsuri" }, hold: { label: "保留", t: "保", col: "--muted" }, vt: { label: "公共交通で行った", t: "済", col: "--fill-tr" }, vo: { label: "車などで行った", t: "済", col: "--fill" } };
 const EMPTY = { type: "FeatureCollection", features: [] };
 const fc = features => ({ type: "FeatureCollection", features });
@@ -940,26 +1008,30 @@ function onStyleLoad() {
   }
   const sym = layers.find(l => l.type === "symbol");
   beforeId = sym?.id;
+  // バス・鉄道の線は道路の上に重ねる（道に沿って描くので、道路の下だと隠れてしまう）
+  const lastRoad = layers.reduce((k, l, i) => /^(road|bridge|tunnel|rail)/.test(l.id) ? i : k, -1);
+  lineBefore = (lastRoad >= 0 && layers.slice(lastRoad + 1).find(l => l.type === "symbol")?.id) || beforeId;
   const tfnt = sym && mapgl.getLayoutProperty(sym.id, "text-font");
   if (Array.isArray(tfnt) && typeof tfnt[0] === "string") textFont = tfnt;
   railSet = false; // 地図を読み直したら鉄道も入れ直す
   document.querySelectorAll(".maplibregl-ctrl-attrib.maplibregl-compact-show").forEach(e => e.classList.remove("maplibregl-compact-show")); // 出典は「i」に畳む（凡例を隠さないように）
   addOverlay();
   mapReady = true;
+  applySheetPad();
   drawMap(!firstView);
 }
 // 重ねる層（下から）: 県の色・格子・マス・市区町村・バス・鉄道 →（背景の地名）→ 3D の建物・選んだマス・名前・印
 function addOverlay() {
   const C = n => cssVar(n);
   for (const id of ["nt-prefs", "nt-cells", "nt-grid", "nt-hl", "nt-on", "nt-pop", "nt-muni", "nt-munilabel", "nt-rail", "nt-bus", "nt-marks", "nt-pins", "nt-sel"]) mapgl.addSource(id, { type: "geojson", data: EMPTY });
-  const add = (l, below) => mapgl.addLayer(l, below ? beforeId : undefined);
+  const add = (l, below) => mapgl.addLayer(l, below === "line" ? lineBefore : below ? beforeId : undefined);
   add({ id: "nt-pref-fill", type: "fill", source: "nt-prefs", paint: { "fill-color": ["get", "fill"], "fill-opacity": ["get", "op"] } }, true);
   add({ id: "nt-grid", type: "line", source: "nt-grid", paint: { "line-color": C("--border"), "line-width": 0.5, "line-opacity": 0.5 } }, true);
   add({ id: "nt-cells", type: "fill", source: "nt-cells", paint: { "fill-color": ["match", ["get", "st"], 0, C("--target"), 1, C("--fill"), C("--fill-tr")], "fill-opacity": ["match", ["get", "st"], 0, 0.35, 0.65] } }, true);
   add({ id: "nt-cells-open", type: "line", source: "nt-cells", filter: ["==", ["get", "st"], 0], paint: { "line-color": C("--accent"), "line-width": 0.8, "line-opacity": 0.6, "line-dasharray": [3, 2] } }, true);
   add({ id: "nt-muni", type: "line", source: "nt-muni", paint: { "line-color": C("--muted"), "line-width": 0.8, "line-opacity": 0.7, "line-dasharray": [3, 2] } }, true);
-  add({ id: "nt-bus", type: "line", source: "nt-bus", layout: { "line-cap": "round" }, paint: { "line-color": C("--bus"), "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 12, 1.4], "line-opacity": 0.55 } }, true);
-  add({ id: "nt-rail", type: "line", source: "nt-rail", layout: { "line-cap": "round" }, paint: { "line-color": C("--rail"), "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 12, 1.6], "line-opacity": 0.6 } }, true);
+  add({ id: "nt-bus", type: "line", source: "nt-bus", layout: { "line-cap": "round" }, paint: { "line-color": C("--bus"), "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 12, 1.2, 16, 2.6], "line-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.4, 14, 0.6] } }, "line");
+  add({ id: "nt-rail", type: "line", source: "nt-rail", layout: { "line-cap": "round" }, paint: { "line-color": C("--rail"), "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 12, 1.6, 16, 3], "line-opacity": 0.6 } }, "line");
   add({ id: "nt-pref-line", type: "line", source: "nt-prefs", paint: { "line-color": C("--border"), "line-width": 0.8 } }, true);
   if (basemapOk) add({ // 3D の建物（背景の地図の建物の高さを立ち上げる。BusTracker と同じ）
     id: "nt-b3d", type: "fill-extrusion", source: "carto", "source-layer": "building", minzoom: 14, layout: { visibility: "none" },
@@ -1046,10 +1118,6 @@ function drawMap(keepZoom) {
   if (detail) { const pid = ui.pref; loadPref(pid).then(d => { if (ui.view === "detail" && ui.pref === pid) { drawMarks(map, d); drawPins(); drawSel(); } }).catch(() => toast("この県のデータを読み込めませんでした")); }
   drawPins();
   highlightLine();
-  // ヒント
-  const hint = document.getElementById("hint");
-  hint.hidden = !detail;
-  if (detail) hint.textContent = map.size === "pref" ? "一覧から行った場所を選ぶと、県が塗られます。" : map.size === "mu" ? "点線の市区町村に行ける場所があります。押すと中の場所が出ます。" : "点線のマスに行ける場所があります。マスを押すと中の場所が出ます。";
   // カメラ
   if (!keepZoom || firstView) fitView(!firstView);
   firstView = false;
@@ -1172,59 +1240,30 @@ const catChips = cats => `<div class="chips">${cats.map(k => `<span class="chip"
 function renderOverviewPanel() {
   const map = curMap(), S = summary(map), TT = totals();
   const wants = Object.entries(state.marks).filter(([id, m]) => m.s === "want" && !state.visits[id]).sort((a, b) => b[1].d.localeCompare(a[1].d));
-  const holds = Object.values(state.marks).filter(m => m.s === "hold").length;
   const regions = REGIONS.map(([name, ids]) => bar(name, ids.filter(i => S.F[i]?.touched).length, ids.length)).join("");
   const badges = BADGES.map(([n, d]) => `<div class="badge${TT.badges.has(n) ? " got" : ""}"><span class="seal">${TT.badges.has(n) ? "印" : "・"}</span><b>${n}</b><small>${d}</small></div>`).join("");
-  const recent = Object.entries(state.visits).sort((a, b) => b[1].d.localeCompare(a[1].d)).slice(0, 6)
-    .map(([id, v]) => `<li class="row"><span class="mk cat-${CATS[v.c]?.k}">${CATS[v.c]?.mk}</span><div class="nm" style="cursor:pointer" data-pref="${v.p}"><b>${esc(v.n)}</b><small>${PREF[v.p]?.name || ""}・${v.d}・${v.t ? "公共交通" : "車など"}</small></div></li>`).join("");
+  const recent = Object.entries(state.visits).sort((a, b) => b[1].d.localeCompare(a[1].d)).slice(0, 5)
+    .map(([id, v]) => `<li class="row"><span class="mk cat-${CATS[v.c]?.k}">${CATS[v.c]?.mk}</span><div class="nm" data-goto="${esc(id)}" data-p="${v.p}" role="button" tabindex="0"><b>${esc(v.n)}</b><small>${PREF[v.p]?.name || ""}・${v.d}・${v.t ? "公共交通" : "車など"}</small></div></li>`).join("");
   panel.innerHTML = `
-    <div class="sec">
-      <h2>全国から場所を探す</h2>
-      <div class="search"><input type="search" id="oq" placeholder="名前で探す（例：草津温泉、上野駅、群馬県）" aria-label="全国から場所を探す" autocomplete="off" value="${esc(ui.oq || "")}"></div>
-      <div class="gres" id="ores" style="position:static;box-shadow:none;width:auto;margin-top:6px;max-height:none" hidden></div>
-    </div>
     <div class="sec ph">
-      <h1 style="font-size:22px">${esc(map.name)}</h1>
       ${catChips(map.cats)}
-      <p class="note">${SIZES[map.size].label}（${SIZES[map.size].lvl}）・全国 ${S.total.toLocaleString()} ${SIZES[map.size].unit}${map.transitOnly ? "・公共交通で行った場所だけ塗る" : ""}</p>
+      <p class="note">${SIZES[map.size].label}（${SIZES[map.size].lvl}）・全国 ${S.total.toLocaleString()} ${SIZES[map.size].unit}${map.transitOnly ? "・公共交通で行った場所だけ塗る" : ""}。地図の県を押すと、県の中の場所が出ます。</p>
       <ul class="bars">${bar("塗った", S.cells, S.total)}${bar("うち公共交通", S.tr, S.cells, "tr")}</ul>
     </div>
+    <div class="sec"><h2>行きたい場所 ${wants.length}か所</h2>${wants.length ? `<ul class="list">${wants.slice(0, 5).map(([id, m]) => `<li class="row"><span class="mk cat-${CATS[m.c]?.k}">${CATS[m.c]?.mk}</span><div class="nm" data-goto="${esc(id)}" data-p="${m.p}" role="button" tabindex="0"><b>${m.top ? '<span class="star">★</span>' : ""}${esc(m.n)}</b><small>${PREF[m.p]?.name || ""}・${m.mu != null ? cellName(`U${m.p}:${m.mu}`) : cellName(m.m3.slice(0, 6))}</small></div></li>`).join("")}</ul>${wants.length > 5 ? `<p class="note"><button type="button" class="linkbtn" data-nav="list">マイリストですべて見る（${wants.length}か所）</button></p>` : ""}` : `<p class="note">場所の♡を押すと、ここに集まります。</p>`}</div>
+    <div class="sec"><h2>最近行った場所</h2>${recent ? `<ul class="list">${recent}</ul>` : `<p class="note">まだありません。地図の県を押して、行った場所の✓を押してください。</p>`}</div>
     <div class="sec"><h2>地方ごとの足あと</h2><ul class="bars">${regions}</ul></div>
-    <div class="sec"><h2>実績 ${TT.badges.size}/${BADGES.length}</h2><div class="badges">${badges}</div></div>
-    <div class="sec"><h2>行きたい場所 ${wants.length}か所</h2>${wants.length ? `<ul class="list">${wants.slice(0, 12).map(([id, m]) => `<li class="row"><span class="mk cat-${CATS[m.c]?.k}">${CATS[m.c]?.mk}</span><div class="nm" style="cursor:pointer" data-goto="${esc(id)}" data-p="${m.p}"><b>${m.top ? '<span class="star">★</span>' : ""}${esc(m.n)}</b><small>${PREF[m.p]?.name || ""}・${m.mu != null ? cellName(`U${m.p}:${m.mu}`) : cellName(m.m3.slice(0, 6))}</small></div></li>`).join("")}</ul>${wants.length > 12 ? `<p class="note">ほか ${wants.length - 12}か所</p>` : ""}` : `<p class="note">県の画面で「行きたい」を押すと、ここに集まります。マスのおすすめでも先に出ます。</p>`}${holds ? `<p class="note" style="margin-top:6px">保留 ${holds}か所（おすすめに出しません）</p>` : ""}</div>
-    <div class="sec"><h2>最近行った場所</h2>${recent ? `<ul class="list">${recent}</ul>` : `<p class="note">まだありません。地図の県を押して、行った場所を記録してください。</p>`}</div>
-    <div class="sec"><h2>おすすめの選び方</h2>
-      <p class="note" style="margin-bottom:8px">マスごとに、まだ行っていない場所から1つおすすめします。上にあるものほど優先します。同じ順位なら、駅・バス停から歩ける所、近い所を先にします。</p>
-      <ol class="prio">${state.prio.map((k, i) => `<li><span class="lab"><span class="mk cat-${k}">${catInfo(k).mk}</span>${catInfo(k).label}</span>
-        <button type="button" data-up="${i}" aria-label="${catInfo(k).label}を上へ" ${i === 0 ? "disabled" : ""}>↑</button><button type="button" data-down="${i}" aria-label="${catInfo(k).label}を下へ" ${i === state.prio.length - 1 ? "disabled" : ""}>↓</button></li>`).join("")}</ol>
-      <div class="btns" style="margin-top:8px"><button type="button" class="btn" id="prio-reset">最初の順番に戻す</button></div>
-    </div>
-    <div class="sec" id="backup"><h2>記録の保存と復元</h2>
-      <p class="note">記録はこのブラウザの中だけにあります。ファイルに保存しておくと、別の端末やブラウザに移したり、消えたときに戻したりできます。</p>
-      <div class="btns" style="margin-top:8px">
-        <button type="button" class="btn pri" id="bk-save">ファイルに保存</button>
-        <label class="btn file">ファイルから復元<input type="file" id="bk-file" accept=".json,application/json"></label>
-        <button type="button" class="btn" id="bk-text">テキストで表示</button>
-      </div>
-      <div id="bk-area"></div>
-    </div>
-    <div class="sec"><h2>この地図</h2>
-      <p class="note" style="margin-bottom:6px">マスの細かさは途中で変えられます。行った記録はそのままで、塗りが新しい細かさで描き直されます。</p>
-      <div class="sizeseg2" role="group" aria-label="マスの細かさ">${sizeButtons(map)}</div>
-      <div class="btns" style="margin-top:10px"><button type="button" class="btn danger" id="map-del">この地図を消す</button></div>
-      <div id="del-area"></div>
-      <p class="note" style="margin-top:6px">地図を消しても、行った記録は消えません。</p>
-    </div>
-    <div class="sec"><h2>出典</h2>
-      <p class="note">地図：<a href="https://www.gsi.go.jp/kankyochiri/gm_jpn.html" target="_blank" rel="noopener">地球地図日本</a>（国土地理院）を <a href="https://github.com/dataofjapan/land" target="_blank" rel="noopener">dataofjapan/land</a> が変換したもの。<br>
-      観光地・温泉など：「国土数値情報（観光資源データ）」（国土交通省、2014年）を加工して作成。道の駅：「国土数値情報（道の駅データ）」（国土交通省、2019年1月時点）を加工して作成。<br>
-      市区町村：「国土数値情報（行政区域データ）」（国土交通省、2025年、CC BY 4.0）を加工して作成。<br>
-      駅・バス停・運行情報：出典：公共交通オープンデータセンター。シェアサイクル（ドコモ・バイクシェア、HELLO CYCLING）のポートと台数も公共交通オープンデータセンターから。次の便は、各事業者が公開している GTFS の時刻表から求めた目安です。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
-      <details id="srcdet"><summary>交通データの提供元をすべて見る</summary><ol class="srclist" id="srclist"><li>読み込み中…</li></ol></details>
+    <div class="sec"><h2>実績 ${TT.badges.size}/${BADGES.length}</h2><div class="badges">${badges}</div></div>`;
+  panel.querySelectorAll("[data-goto]").forEach(el => { const go = () => selectResult({ p: +el.dataset.p, id: el.dataset.goto }); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+  panel.querySelectorAll("[data-nav]").forEach(b => b.onclick = () => navTo(b.dataset.nav));
+}
+function renderSearchPanel() {
+  panel.innerHTML = `
+    <div class="sec">
+      <div class="search"><input type="search" id="oq" placeholder="名前で探す（例：草津温泉、上野駅、群馬県）" aria-label="全国から場所を探す" autocomplete="off" value="${esc(ui.oq || "")}"></div>
+      <p class="note" style="margin-top:6px">都道府県・名所・温泉・道の駅・駅・バス停などを、全国から名前で探せます。</p>
+      <div class="gres" id="ores" style="position:static;box-shadow:none;width:auto;margin-top:6px;max-height:none" hidden></div>
     </div>`;
-  panel.querySelectorAll("[data-pref]").forEach(el => el.onclick = () => selectResult({ type: "pref", p: +el.dataset.pref }));
-  panel.querySelectorAll("[data-goto]").forEach(el => el.onclick = () => selectResult({ p: +el.dataset.p, id: el.dataset.goto }));
-  // 全国から探す（パネル）: 結果だけ描き直す。変換中は探さない
   const oq = document.getElementById("oq"), ores = document.getElementById("ores");
   let oComposing = false;
   const orun = async () => {
@@ -1235,17 +1274,53 @@ function renderOverviewPanel() {
     let R; try { R = await searchAll(oq.value, 60); } catch (e) { ores.innerHTML = "<p>検索のデータを読み込めませんでした。</p>"; return; }
     if (norm(oq.value) !== R.q) return;
     ores.innerHTML = R.hits.length ? R.hits.map(resultHtml).join("") + (R.more ? `<p>ほかにもあります。もう少し長い名前で探すと絞れます。</p>` : "") : `<p>「${esc(oq.value.trim())}」を含む場所は見つかりませんでした。</p>`;
-    bindResults(ores, () => { ui.oq = ""; });
+    bindResults(ores, () => {});
   };
   oq.addEventListener("compositionstart", () => { oComposing = true; });
   oq.addEventListener("compositionend", () => { oComposing = false; orun(); });
   oq.oninput = () => { if (oComposing) return; clearTimeout(oq._t); oq._t = setTimeout(orun, 150); };
   oq.onkeydown = e => { if (e.key === "Enter") { const b = ores.querySelector("button"); if (b) b.click(); } };
   if (oq.value) orun();
-  const movePrio = (i, j) => { const a = state.prio; [a[i], a[j]] = [a[j], a[i]]; save(); renderOverviewPanel(); const b = panel.querySelector(`[data-${j < i ? "up" : "down"}="${j}"]`) || panel.querySelector(`[data-up="${j}"]`); if (b && !b.disabled) b.focus(); };
+  if (!MOBILE) oq.focus();
+}
+function renderMenuPanel() {
+  const map = curMap();
+  panel.innerHTML = `
+    <div class="sec menu-sec"><h2>地図</h2>
+      <div class="btns"><button type="button" class="btn pri" id="m-new">＋ 新しい地図を作る</button></div>
+      <p class="note" style="margin:10px 0 6px">いまの地図「${esc(map.name)}」のマスの細かさ（行った記録はそのままで、塗りが描き直されます）</p>
+      <div class="sizeseg2" role="group" aria-label="マスの細かさ">${sizeButtons(map)}</div>
+      <div class="btns" style="margin-top:10px"><button type="button" class="btn danger" id="map-del">この地図を消す</button></div>
+      <div id="del-area"></div>
+      <p class="note" style="margin-top:6px">地図を消しても、行った記録は消えません。</p>
+    </div>
+    <div class="sec menu-sec"><h2>おすすめの選び方</h2>
+      <p class="note" style="margin-bottom:8px">マスごとに、まだ行っていない場所から1つおすすめします。上にあるものほど優先します。同じ順位なら、駅・バス停から歩ける所、近い所を先にします。</p>
+      <ol class="prio">${state.prio.map((k, i) => `<li><span class="lab"><span class="mk cat-${k}">${catInfo(k).mk}</span>${catInfo(k).label}</span>
+        <button type="button" data-up="${i}" aria-label="${catInfo(k).label}を上へ" ${i === 0 ? "disabled" : ""}>↑</button><button type="button" data-down="${i}" aria-label="${catInfo(k).label}を下へ" ${i === state.prio.length - 1 ? "disabled" : ""}>↓</button></li>`).join("")}</ol>
+      <div class="btns" style="margin-top:8px"><button type="button" class="btn" id="prio-reset">最初の順番に戻す</button></div>
+    </div>
+    <div class="sec menu-sec" id="backup"><h2>記録の保存と復元</h2>
+      <p class="note">記録はこのブラウザの中だけにあります。ファイルに保存しておくと、別の端末やブラウザに移したり、消えたときに戻したりできます。</p>
+      <div class="btns" style="margin-top:8px">
+        <button type="button" class="btn pri" id="bk-save">ファイルに保存</button>
+        <label class="btn file">ファイルから復元<input type="file" id="bk-file" accept=".json,application/json"></label>
+        <button type="button" class="btn" id="bk-text">テキストで表示</button>
+      </div>
+      <div id="bk-area"></div>
+    </div>
+    <div class="sec"><h2>出典</h2>
+      <p class="note">地図：<a href="https://www.gsi.go.jp/kankyochiri/gm_jpn.html" target="_blank" rel="noopener">地球地図日本</a>（国土地理院）を <a href="https://github.com/dataofjapan/land" target="_blank" rel="noopener">dataofjapan/land</a> が変換したもの。<br>
+      観光地・温泉など：「国土数値情報（観光資源データ）」（国土交通省、2014年）を加工して作成。道の駅：「国土数値情報（道の駅データ）」（国土交通省、2019年1月時点）を加工して作成。<br>
+      市区町村：「国土数値情報（行政区域データ）」（国土交通省、2025年、CC BY 4.0）を加工して作成。<br>
+      駅・バス停・運行情報：出典：公共交通オープンデータセンター。シェアサイクル（ドコモ・バイクシェア、HELLO CYCLING）のポートと台数も公共交通オープンデータセンターから。次の便は、各事業者が公開している GTFS の時刻表から求めた目安です。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
+      <details id="srcdet"><summary>交通データの提供元をすべて見る</summary><ol class="srclist" id="srclist"><li>読み込み中…</li></ol></details>
+    </div>`;
+  document.getElementById("m-new").onclick = openSetup;
+  const movePrio = (i, j) => { const a = state.prio; [a[i], a[j]] = [a[j], a[i]]; save(); renderMenuPanel(); const b = panel.querySelector(`[data-${j < i ? "up" : "down"}="${j}"]`) || panel.querySelector(`[data-up="${j}"]`); if (b && !b.disabled) b.focus(); };
   panel.querySelectorAll("[data-up]").forEach(b => b.onclick = () => movePrio(+b.dataset.up, +b.dataset.up - 1));
   panel.querySelectorAll("[data-down]").forEach(b => b.onclick = () => movePrio(+b.dataset.down, +b.dataset.down + 1));
-  document.getElementById("prio-reset").onclick = () => { state.prio = [...PRIO_DEFAULT]; save(); renderOverviewPanel(); toast("おすすめの順番を最初に戻しました"); };
+  document.getElementById("prio-reset").onclick = () => { state.prio = [...PRIO_DEFAULT]; save(); renderMenuPanel(); toast("おすすめの順番を最初に戻しました"); };
   document.getElementById("bk-save").onclick = saveFile;
   document.getElementById("bk-text").onclick = () => { document.getElementById("bk-area").innerHTML = `<p class="note">この文字をすべてコピーして、テキストファイルなどに保存してください。</p><textarea id="bk-ta" readonly></textarea>`; const ta = document.getElementById("bk-ta"); ta.value = exportText(); ta.select(); };
   document.getElementById("bk-file").onchange = e => readRestoreFile(e.target.files[0], document.getElementById("bk-area"));
@@ -1253,7 +1328,7 @@ function renderOverviewPanel() {
   document.getElementById("map-del").onclick = () => {
     document.getElementById("del-area").innerHTML = `<div class="confirm">「${esc(map.name)}」を消しますか。<div class="btns"><button type="button" class="btn danger" id="del-yes">消す</button><button type="button" class="btn" id="del-no">やめる</button></div></div>`;
     document.getElementById("del-no").onclick = () => { document.getElementById("del-area").innerHTML = ""; };
-    document.getElementById("del-yes").onclick = () => { state.maps = state.maps.filter(m => m.id !== map.id); state.cur = state.maps[0]?.id || null; save(); toast("地図を消しました"); state.maps.length ? render() : openSetup(); };
+    document.getElementById("del-yes").onclick = () => { state.maps = state.maps.filter(m => m.id !== map.id); state.cur = state.maps[0]?.id || null; save(); toast("地図を消しました"); if (state.maps.length) navTo("map"); else openSetup(); };
   };
   document.getElementById("srcdet").addEventListener("toggle", async e => {
     if (!e.target.open || e.target.dataset.done) return;
@@ -1274,12 +1349,17 @@ function nearText(s) {
   if (n && n[2]) parts.push(`${n[3] <= WALK_BUS ? '<span class="ok">' : ""}バス停 ${esc(n[2])} ${n[3]}m${n[3] <= WALK_BUS ? "</span>" : ""}`);
   return parts.length ? parts.join("・") : "近くに駅・バス停のデータなし";
 }
-function actsHtml(s) {
+const ICON = {
+  heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="currentColor"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+// ✓ を押すと行の下に開く: 行ったときの選び方・保留、行ったあとは日付と取り消し
+function moreHtml(s) {
   const v = state.visits[s.id], m = state.marks[s.id]?.s, id = esc(s.id);
-  const marks = `<button type="button" class="mark want" data-mark="want" data-id="${id}" aria-pressed="${m === "want"}">行きたい</button><button type="button" class="mark hold" data-mark="hold" data-id="${id}" aria-pressed="${m === "hold"}">保留</button>`;
-  if (v) return `<div class="done"><b class="${v.t ? "" : "car"}">${v.t ? "公共交通で行った" : "車などで行った"}</b><input type="date" data-date="${id}" value="${v.d}" max="${today()}" aria-label="行った日"> <button type="button" data-undo="${id}">取り消す</button></div>`;
-  if (TRANSIT.has(s.c)) return `<div class="acts">${marks}<button type="button" class="go" data-go="${id}" data-t="1" title="この駅・バス停で乗り降りした。マスが緑で塗られます">乗り降りした</button></div>`;
-  return `<div class="acts">${marks}<button type="button" class="go" data-go="${id}" data-t="1" title="電車・バス・シェアサイクルで行った。マスが緑で塗られ、公共交通の記録に数えます">電車・バス・シェアサイクルで行った</button><button type="button" class="go alt" data-go="${id}" data-t="0" title="車・自転車・徒歩などで行った。マスは青で塗られます（公共交通だけの地図では塗られません）">車などで行った</button></div>`;
+  const hold = `<button type="button" class="mark hold" data-mark="hold" data-id="${id}" aria-pressed="${m === "hold"}">保留</button>`;
+  if (v) return `<div class="more"><span class="done-l ${v.t ? "tr" : "car"}">${v.t ? "公共交通で行った" : "車などで行った"}</span><input type="date" data-date="${id}" value="${v.d}" max="${today()}" aria-label="行った日"><button type="button" class="btn" data-undo="${id}">取り消す</button></div>`;
+  if (TRANSIT.has(s.c)) return `<div class="more"><button type="button" class="go" data-go="${id}" data-t="1">乗り降りした</button>${hold}</div>`;
+  return `<div class="more"><button type="button" class="go" data-go="${id}" data-t="1" title="マスが緑で塗られ、公共交通の記録に数えます">電車・バス・シェアサイクルで行った</button><button type="button" class="go alt" data-go="${id}" data-t="0" title="マスは青で塗られます">車などで行った</button>${hold}</div>`;
 }
 
 function renderSpotList(d, map, all, selLine) {
@@ -1307,9 +1387,13 @@ function highlightLine() {
   const sel = ui.view === "detail" && d && ui.line && lineReach(map, d).find(x => x.l === ui.line);
   setData("nt-hl", sel ? feats([...sel.cells].filter(c => cellCodes?.has(c)).map(c => cellFeat(c))) : EMPTY);
 }
-function rowHtml(s) {
-  return `<li class="row" data-id="${esc(s.id)}"><span class="mk cat-${CATS[s.c].k}${state.visits[s.id] ? "" : " off"}">${CATS[s.c].mk}</span>
-    <div class="nm"><b>${s.top ? '<span class="star" title="名所">★</span>' : ""}${esc(s.name)}${rowHtml.picks?.has(s.id) ? '<span class="tagp">おすすめ</span>' : ""}${state.marks[s.id]?.s === "want" && !state.visits[s.id] ? '<span class="stw">行きたい</span>' : ""}${state.marks[s.id]?.s === "hold" && !state.visits[s.id] ? '<span class="sth">保留</span>' : ""}</b><small>${nearText(s)}</small></div>${actsHtml(s)}</li>`;
+function rowHtml(s, o = {}) {
+  const v = state.visits[s.id], m = state.marks[s.id]?.s, id = esc(s.id), open = o.open || ui.open === s.id;
+  const tags = `${rowHtml.picks?.has(s.id) ? '<span class="tagp">おすすめ</span>' : ""}${m === "want" && !v ? '<span class="stw">行きたい</span>' : ""}${m === "hold" && !v ? '<span class="sth">保留</span>' : ""}`;
+  const nm = `<div class="nm" ${o.goto ? `data-goto="${id}" data-p="${s.pref}"` : `data-sel="${id}"`} role="button" tabindex="0"><b>${s.top ? '<span class="star" title="名所">★</span>' : ""}${esc(s.name)}${tags}</b><small>${o.sub ?? nearText(s)}</small></div>`;
+  const heart = v ? `<span class="ib ghost"></span>` : `<button type="button" class="ib heart" data-mark="want" data-id="${id}" aria-pressed="${m === "want"}" aria-label="行きたい" title="行きたい">${ICON.heart}</button>`;
+  const check = `<button type="button" class="ib check${v ? (v.t ? " tr" : " car") : ""}" data-more="${id}" aria-expanded="${open}" aria-label="${v ? "行った記録を見る" : "行った・保留"}" title="${v ? "行った（日付・取り消し）" : "行った・保留"}">${ICON.check}</button>`;
+  return `<li class="row" data-id="${id}"><span class="mk cat-${CATS[s.c].k}${v ? "" : " off"}">${CATS[s.c].mk}</span>${nm}${heart}${check}${open ? moreHtml(s) : ""}</li>`;
 }
 async function renderDetailPanel() {
   const map = curMap(), P = PREF[ui.pref], pid = ui.pref;
@@ -1317,12 +1401,7 @@ async function renderDetailPanel() {
   let trN = 0; for (const t of F.values()) if (t) trN++;
   const lv = level(F.size, T.size);
   panel.innerHTML = `
-    <div class="ph"><h1>${P.name}<span class="pill lv${lv}">${LV_NAME[lv]}</span></h1>
-      <div class="kv">
-        <div><small>塗った${SIZES[map.size].label}</small><b>${F.size}</b><span>/ ${T.size}</span></div>
-        <div class="tr"><small>うち公共交通で</small><b>${trN}</b><span>${SIZES[map.size].unit}</span></div>
-      </div>
-    </div>
+    <p class="prefline">この県：塗った ${SIZES[map.size].label} <b>${F.size}</b> / ${T.size}・うち公共交通 <b class="tr">${trN}</b></p>
     <div class="sec" id="spotsec"><p class="note">場所を読み込んでいます…</p></div>`;
   // 読み込み済みなら待たずに続ける（一瞬でも中身が短くなると、スクロールが先頭に戻ってしまう）
   let d = prefData.get(pid);
@@ -1346,17 +1425,17 @@ async function renderDetailPanel() {
       <label class="check" for="reach"><input type="checkbox" id="reach" ${ui.reach ? "checked" : ""}>駅（${WALK_RAIL / 1000}km）・バス停（${WALK_BUS}m）から歩ける所だけ</label>
     </div>
     ${ui.cell ? `<div class="filterbar" style="margin-top:8px"><span>${esc(cellName(ui.cell))} の場所</span><button type="button" id="cell-clear">すべて表示</button></div>` : ""}
-    ${selSpot && selSpot !== cellPick ? `<div class="reco" style="margin-top:8px"><span class="lbl">選んだ場所</span>${rowHtml(selSpot)}${howtoHtml(selSpot)}</div>` : ""}
-    ${cellPick ? `<div class="reco" style="margin-top:8px"><span class="lbl">このマスのおすすめ</span>${rowHtml(cellPick)}<small class="note">${esc(whyText(cellPick))}</small>${howtoHtml(cellPick)}</div>`
+    ${selSpot ? `<div class="reco selcard" style="margin-top:8px"><div class="lblrow"><span class="lbl">選んだ場所</span><button type="button" class="x" id="sel-close">閉じる</button></div><ul class="list">${rowHtml(selSpot, { open: true })}</ul>${howtoHtml(selSpot)}</div>` : ""}
+    ${cellPick && cellPick !== selSpot ? `<div class="reco" style="margin-top:8px"><span class="lbl">このマスのおすすめ</span><ul class="list">${rowHtml(cellPick)}</ul><small class="note">${esc(whyText(cellPick))}</small>${howtoHtml(cellPick)}</div>`
       : ui.cell && P1 && F.has(ui.cell) ? `<p class="note" style="margin-top:8px">このマスは塗りました。${F.get(ui.cell) ? "公共交通で行きました。" : ""}</p>` : ""}
     ${selLine ? `<div class="filterbar" style="margin-top:8px"><span>${esc(selLine.l)}で行ける場所（まだ塗っていないマス ${selLine.open.size}）</span><button type="button" id="line-clear">路線をやめる</button></div>` : ""}
     <div id="tinfo-pref"></div>
     ${LR.length && !ui.cell && !q ? `<details class="sec" style="margin-top:8px" ${selLine ? "open" : ""}><summary>路線から選ぶ（${LR.length}路線）</summary>
       <p class="note" style="margin:6px 0">その路線の駅と、駅から歩ける場所で塗れるマスの数です。まだ塗っていないマスが多い順。</p>
       <ul class="lines">${LR.slice(0, 15).map(x => `<li><button type="button" data-line="${esc(x.l)}" aria-pressed="${ui.line === x.l}"><span class="ln">${esc(x.l)}</span><span class="cnt">まだ <b>${x.open.size}</b> / ${x.cells.size}マス</span></button></li>`).join("")}</ul></details>` : ""}
-    ${nextPicks.length && !selLine ? `<div class="reco" style="margin-top:8px"><span class="lbl">まだ塗っていないマスのおすすめ</span><ul class="list">${nextPicks.map(rowHtml).join("")}</ul><small class="note">「おすすめの選び方」（全国の画面）で優先度を変えられます。</small></div>` : ""}
+    ${nextPicks.length && !selLine ? `<div class="reco" style="margin-top:8px"><span class="lbl">まだ塗っていないマスのおすすめ</span><ul class="list">${nextPicks.map(rowHtml).join("")}</ul><small class="note">優先度は、メニューの「おすすめの選び方」で変えられます。</small></div>` : ""}
     <h2 style="margin-top:14px">${ui.cell ? "このマスの場所" : "場所の一覧"}</h2>
-    <p class="note" style="margin-bottom:6px">電車・バス・シェアサイクルで行くとマスが<b style="color:var(--fill-tr)">緑</b>、車などで行くと<b style="color:var(--fill)">青</b>で塗られます。</p>
+    <p class="note" style="margin-bottom:6px">名前を押すと詳しく（行き方・次の便）。♡は行きたい、✓は行った（電車・バス・シェアサイクルならマスが<b style="color:var(--fill-tr)">緑</b>、車などなら<b style="color:var(--fill)">青</b>）。</p>
     <div id="spotlist"></div>`;
   renderSpotList(d, map, all, selLine);
   // 名前で探す: 一覧だけ描き直す。日本語の変換中は探さず、確定してから探す
@@ -1368,6 +1447,7 @@ async function renderDetailPanel() {
   qi.oninput = () => { if (composing) return; clearTimeout(qi._t); qi._t = setTimeout(run, 120); };
   document.getElementById("reach").onchange = e => { ui.reach = e.target.checked; renderSpotList(d, map, all, selLine); };
   const cc = document.getElementById("cell-clear"); if (cc) cc.onclick = () => { ui.cell = null; ui.spot = null; renderPanel(); setOnCell(null); };
+  const sc = document.getElementById("sel-close"); if (sc) sc.onclick = () => { ui.spot = null; ui.open = null; renderPanel(); };
   bindRowActions(sec);
   fillHowtos(sec, d);
   sec.querySelectorAll("[data-line]").forEach(b => b.onclick = () => { ui.line = ui.line === b.dataset.line ? null : b.dataset.line; ui.cell = null; ui.spot = null; renderDetailPanel(); highlightLine(); });
@@ -1397,7 +1477,7 @@ function setMapSize(k) {
 }
 function renderHeader() {
   const sel = document.getElementById("mapsel");
-  sel.innerHTML = state.maps.map(m => `<option value="${esc(m.id)}"${m.id === state.cur ? " selected" : ""}>${esc(m.name)}</option>`).join("");
+  sel.innerHTML = state.maps.map(m => `<option value="${esc(m.id)}"${m.id === state.cur ? " selected" : ""}>${esc(m.name)}</option>`).join("") + `<option value="__new">＋ 新しい地図を作る…</option>`;
   const map = curMap(); if (!map) return;
   const S = summary(map);
   document.getElementById("st-pref").textContent = S.prefs;
@@ -1406,7 +1486,12 @@ function renderHeader() {
   document.getElementById("st-cell-l").textContent = SIZES[map.size].label;
   document.getElementById("st-tr").textContent = S.cells ? Math.round(S.tr / S.cells * 100) : 0;
   document.getElementById("back").hidden = ui.view === "over";
-  document.getElementById("mylist").setAttribute("aria-pressed", ui.view === "list");
+  // シートの見出しとタブ
+  const tab = ui.view === "list" ? "list" : ui.view === "search" ? "search" : ui.view === "menu" ? "" : "map";
+  document.querySelectorAll("[data-nav]").forEach(b => { if (b.closest(".toptabs, .tabbar")) b.toggleAttribute("aria-current", false), b.dataset.nav === tab && b.setAttribute("aria-current", "page"); });
+  const title = document.getElementById("sh-title");
+  if (ui.view === "detail") { const F = S.F[ui.pref]?.all || new Map(), lv = level(F.size, targets(map, ui.pref).size); title.innerHTML = `<span class="t">${PREF[ui.pref].name}</span><span class="pill lv${lv}">${LV_NAME[lv]}</span>`; }
+  else title.innerHTML = `<span class="t">${ui.view === "list" ? "マイリスト" : ui.view === "search" ? "全国から探す" : ui.view === "menu" ? "メニュー" : esc(map.name)}</span>`;
   document.getElementById("ly-rail").checked = state.layers.rail;
   document.getElementById("ly-bus").checked = state.layers.bus;
   document.getElementById("ly-mine").checked = state.layers.mine;
@@ -1417,7 +1502,6 @@ function renderHeader() {
   document.getElementById("ly-muni-l").hidden = ui.view !== "detail";
   document.getElementById("ly-b3d").checked = state.layers.b3d;
   document.getElementById("ly-b3d-l").hidden = ui.view !== "detail" || !basemapOk;
-  document.getElementById("layers").classList.toggle("over-layers", ui.view !== "detail");
 }
 function renderListPanel() {
   const L = ui.list;
@@ -1428,8 +1512,7 @@ function renderListPanel() {
   const prefOrder = r => r.p * 1e9 - Date.parse(r.d) / 1e5;
   list.sort(L.sort === "new" ? (a, b) => b.d.localeCompare(a.d) : L.sort === "old" ? (a, b) => a.d.localeCompare(b.d) : (a, b) => prefOrder(a) - prefOrder(b));
   const prefsIn = [...new Set(all[L.tab].map(r => r.p))].sort((a, b) => a - b);
-  const row = r => `<li class="row" data-id="${esc(r.id)}"><span class="mk cat-${CATS[r.c]?.k}${r.kind === "visit" ? "" : " off"}">${CATS[r.c]?.mk}</span>
-    <div class="nm" style="cursor:pointer" data-goto="${esc(r.id)}" data-p="${r.p}"><b>${r.top ? '<span class="star">★</span>' : ""}${esc(r.n)}</b><small>${PREF[r.p]?.name || ""}・${CATS[r.c]?.label}${r.kind === "visit" ? "" : `・${r.d.replace(/-/g, "/")} に印`}</small></div>${actsHtml(findSpot(r.id) || { id: r.id, c: r.c })}</li>`;
+  const row = r => rowHtml(findSpot(r.id) || { id: r.id, name: r.n, c: r.c, pref: r.p, top: !!r.top }, { goto: true, sub: `${PREF[r.p]?.name || ""}・${CATS[r.c]?.label}${r.kind === "visit" ? `・${r.d.replace(/-/g, "/")}` : `・${r.d.replace(/-/g, "/")} に印`}` });
   let body = "";
   if (!list.length) body = `<p class="note">${L.tab === "visit" ? "まだ行った場所がありません。" : L.tab === "want" ? "県の画面で「行きたい」を押すと、ここに集まります。" : "「保留」にした場所はありません。"}</p>`;
   else if (L.tab === "visit" && L.sort !== "pref") { // 行った場所は年月ごとに（旅の記録）
@@ -1440,7 +1523,7 @@ function renderListPanel() {
     for (const [pid, rs] of by) body += `<div class="month">${PREF[pid]?.name}<span>${rs.length}か所</span></div><ul class="list">${rs.map(row).join("")}</ul>`;
   } else body = `<ul class="list">${list.map(row).join("")}</ul>`;
   panel.innerHTML = `
-    <div class="ph"><h1 style="font-size:22px">マイリスト</h1>
+    <div class="ph">
       <div class="tabs" role="tablist">
         <button type="button" role="tab" data-tab="visit" aria-selected="${L.tab === "visit"}">行った ${all.visit.length}</button>
         <button type="button" role="tab" data-tab="want" aria-selected="${L.tab === "want"}">行きたい ${all.want.length}</button>
@@ -1451,7 +1534,7 @@ function renderListPanel() {
         <select id="lf-cat" aria-label="種類で絞る"><option value="">すべての種類</option><option value="top"${L.cat === "top" ? " selected" : ""}>★ 名所</option>${CATS.map((c, i) => `<option value="${i}"${L.cat === String(i) ? " selected" : ""}>${c.label}</option>`).join("")}</select>
         <select id="lf-sort" aria-label="並べ方"><option value="new"${L.sort === "new" ? " selected" : ""}>新しい順</option><option value="old"${L.sort === "old" ? " selected" : ""}>古い順</option><option value="pref"${L.sort === "pref" ? " selected" : ""}>都道府県ごと</option></select>
       </div>
-      <p class="note">${list.length}か所${L.tab === "visit" ? "。行った日は日付の欄で直せます" : ""}。名前を押すと地図でその場所を開きます。</p>
+      <p class="note">${list.length}か所。名前を押すと地図でその場所を開きます。${L.tab === "visit" ? "✓を押すと行った日を直せます。" : ""}</p>
     </div>
     <div class="sec">${body}</div>`;
   panel.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { L.tab = b.dataset.tab; L.pref = ""; renderListPanel(); drawMap(true); });
@@ -1461,8 +1544,18 @@ function renderListPanel() {
   panel.querySelectorAll("[data-goto]").forEach(el => el.onclick = () => goToSpot(+el.dataset.p, el.dataset.goto));
   bindRowActions(panel);
 }
-function renderPanel() { ui.view === "list" ? renderListPanel() : ui.view === "over" ? renderOverviewPanel() : renderDetailPanel(); drawSel(); }
-function render(keepZoom) { if (!IDX || !curMap()) return; renderHeader(); drawMap(keepZoom); renderPanel(); }
+function renderPanel() {
+  const v = ui.view;
+  if (v === "over" || v === "detail") ui.lastMap = v;
+  v === "list" ? renderListPanel() : v === "over" ? renderOverviewPanel() : v === "search" ? renderSearchPanel() : v === "menu" ? renderMenuPanel() : renderDetailPanel();
+  drawSel();
+}
+function render(keepZoom) {
+  if (!IDX || !curMap()) return;
+  renderHeader();
+  if (ui.view !== "search" && ui.view !== "menu") drawMap(keepZoom); // 探す・メニューのときは地図をそのままに
+  renderPanel();
+}
 
 /* ================= 操作 ================= */
 /* ================= 画面の行き来（戻る） ================= */
@@ -1494,6 +1587,7 @@ function openPref(id) {
   const from = ui.view, fromPref = ui.pref; saveNav();
   ui.view = "detail"; ui.pref = id; ui.cell = null; ui.spot = null; ui.hl = null; ui.q = ""; ui.line = null; render();
   pushNav(from, fromPref);
+  setSheet("half");
 }
 function flashRow(id) {
   const row = [...panel.querySelectorAll(".row")].find(r => r.dataset.id === id);
@@ -1518,6 +1612,7 @@ function visit(id, byTransit) {
   if (F1 && F1.all.size >= t && (F0?.all.size || 0) < t) msgs.push(`<b>制覇</b>${PREF[s.pref].name}を塗りきりました`);
   after.badges.forEach(b => { if (!before.badges.has(b)) msgs.push(`<b>実績</b>${b}`); });
   if (!msgs.length) msgs.push(`<b>記録</b>${esc(s.name)}`);
+  if (ui.open === id) ui.open = null;
   focusSpot(s); rerenderKeep(id); centerOn(s);
   popCell(cell);
   msgs.forEach((m, i) => setTimeout(() => toast(m, true), i * 350));
@@ -1537,7 +1632,7 @@ function setMark(id, kind) {
   const s = findSpot(id); if (!s) return;
   if (state.marks[id]?.s === kind) delete state.marks[id];
   else state.marks[id] = { s: kind, d: today(), p: s.pref, c: s.c, n: s.name, m3: s.m3, ...(s.mu >= 0 ? { mu: s.mu } : {}), ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
-  markVer++; save(); focusSpot(s); rerenderKeep(id); centerOn(s);
+  markVer++; save(); focusSpot(s); if (ui.open === id && kind === "want") ui.open = null; rerenderKeep(id); centerOn(s);
   toast(state.marks[id] ? (kind === "want" ? "行きたい場所に入れました。マスのおすすめで先に出ます" : "保留にしました。おすすめに出なくなります") : "印を外しました");
 }
 function setDate(id, d) {
@@ -1545,6 +1640,14 @@ function setDate(id, d) {
   state.visits[id].d = d; save(); toast(`行った日を ${d.replace(/-/g, "/")} にしました`);
 }
 function bindRowActions(root) {
+  root.querySelectorAll("[data-more]").forEach(b => b.onclick = () => { // ✓: 行の下を開く・閉じる（描き直さない）
+    const id = b.dataset.more, li = b.closest(".row"), s = findSpot(id);
+    const wasOpen = b.getAttribute("aria-expanded") === "true";
+    panel.querySelectorAll(".row .more").forEach(x => { if (!x.closest(".selcard")) { x.closest(".row").querySelector("[data-more]")?.setAttribute("aria-expanded", "false"); x.remove(); } });
+    ui.open = null;
+    if (!wasOpen && s && li) { li.insertAdjacentHTML("beforeend", moreHtml(s)); b.setAttribute("aria-expanded", "true"); ui.open = id; bindRowActions(li.querySelector(".more")); }
+  });
+  root.querySelectorAll("[data-sel]").forEach(el => { el.onclick = () => selectSpot(el.dataset.sel); el.onkeydown = e => { if (e.key === "Enter") selectSpot(el.dataset.sel); }; });
   root.querySelectorAll("[data-go]").forEach(b => b.onclick = () => visit(b.dataset.go, b.dataset.t === "1"));
   root.querySelectorAll("[data-undo]").forEach(b => b.onclick = () => unvisit(b.dataset.undo));
   root.querySelectorAll("[data-mark]").forEach(b => b.onclick = () => setMark(b.dataset.id, b.dataset.mark));
@@ -1590,8 +1693,11 @@ async function goToSpot(pid, id) {
   saveNav();
   ui.view = "detail"; ui.pref = pid; ui.q = ""; ui.reach = false; ui.spot = id; ui.line = null;
   ui.cell = map.size !== "pref" && inMap(map, s) ? cellOf(map.size, { p: pid, m3: s.m3, mu: s.mu }) : null;
+  ui.open = id;
   render();
   pushNav(from, fromPref);
+  setSheet("half");
+  { const card = panel.querySelector(".selcard"); if (card) panel.scrollTop = card.offsetTop - panel.offsetTop - 8; }
   if (mapReady) mapgl.flyTo({ center: [s.lon, s.lat], zoom: map.size === "m3" ? 14 : 12, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700 });
   if (!inMap(map, s)) toast(`「${CATS[s.c].label}」はこの地図の対象外です。記録すると、${CATS[s.c].label}を含む地図で塗られます`);
 }
@@ -1639,23 +1745,6 @@ async function selectResult(r) {
     if (r.type === "pref") openPref(r.p); else await goToSpot(r.p, r.id);
   } finally { selecting = false; }
 }
-const gq = document.getElementById("gq"), gres = document.getElementById("gres");
-async function runSearch() {
-  if (!gq.value.trim()) { gres.hidden = true; return; }
-  gres.hidden = false;
-  if (!SEARCH || !BUSIDX) gres.innerHTML = "<p>読み込んでいます…</p>";
-  let R; try { R = await searchAll(gq.value, 40); } catch (e) { gres.innerHTML = "<p>検索のデータを読み込めませんでした。</p>"; return; }
-  if (norm(gq.value) !== R.q) return;
-  gres.innerHTML = R.hits.length ? R.hits.map(resultHtml).join("") + (R.more ? `<p>ほかにもあります。もう少し長い名前で探すと絞れます。</p>` : "") : `<p>見つかりませんでした。</p>`;
-  bindResults(gres, () => { gres.hidden = true; gq.value = ""; });
-}
-let gComposing = false;
-gq.addEventListener("compositionstart", () => { gComposing = true; });
-gq.addEventListener("compositionend", () => { gComposing = false; runSearch(); });
-gq.oninput = () => { if (gComposing) return; clearTimeout(gq._t); gq._t = setTimeout(runSearch, 150); };
-gq.onfocus = () => { if (gq.value) runSearch(); };
-gq.onkeydown = e => { if (e.key === "Escape") { gres.hidden = true; gq.blur(); } if (e.key === "Enter") { const b = gres.querySelector("button"); if (b) b.click(); } };
-document.addEventListener("click", e => { if (!e.target.closest(".gsearch")) gres.hidden = true; });
 
 /* ================= 記録の保存と復元 ================= */
 function exportText() { return JSON.stringify({ app: "nuritabi", v: 2, saved: new Date().toISOString(), maps: state.maps, cur: state.cur, visits: state.visits, marks: state.marks, prio: state.prio }); }
@@ -1844,14 +1933,67 @@ document.getElementById("s-ok").onclick = () => {
   if (ps && ps.size === 1) openPref([...ps][0]); else { ui.view = "over"; render(); }
   toast(`「${esc(m.name)}」をはじめました${draft.picks.size ? `。行きたい場所 ${draft.picks.size}か所` : ""}`, true);
 };
-document.getElementById("newmap").onclick = openSetup;
-document.getElementById("mylist").onclick = () => { const from = ui.view; saveNav(); ui.view = ui.view === "list" ? "over" : "list"; ui.pref = null; ui.cell = null; ui.spot = null; render(); pushNav(from); };
+// タブ（地図・マイリスト・探す）とメニュー
+function navTo(nav) {
+  const from = ui.view, fromPref = ui.pref;
+  const to = nav === "map" ? (ui.lastMap === "detail" && ui.pref ? "detail" : "over") : nav;
+  if (to === ui.view) { if (to === "detail") return; if (to === "over") { fitView(true); return; } }
+  saveNav();
+  ui.view = to; ui.cell = null; ui.spot = null; ui.open = null;
+  render(to === "detail" || to === "over" ? false : true);
+  pushNav(from, fromPref);
+  setSheet(to === "search" || to === "menu" ? "full" : to === "over" ? "peek" : "half");
+}
+document.querySelectorAll(".toptabs [data-nav], .tabbar [data-nav]").forEach(b => b.onclick = () => navTo(b.dataset.nav));
+document.getElementById("menu").onclick = () => ui.view === "menu" ? goBack() : navTo("menu");
+// 地図の上の「表示」「凡例」
+const toggleTool = (btn, box) => { const open = box.hidden; box.hidden = !open; btn.setAttribute("aria-expanded", open); };
+document.getElementById("t-layers").onclick = e => toggleTool(e.currentTarget, document.getElementById("layers"));
+document.getElementById("t-legend").onclick = e => toggleTool(e.currentTarget, document.getElementById("legend"));
+if (!MOBILE && innerWidth > 820) { document.getElementById("legend").hidden = false; document.getElementById("t-legend").setAttribute("aria-expanded", "true"); }
+
+// 下から引き出すシート（スマホ）: 少し出す・半分・全部。取っ手と見出しを指で動かす
+const sheet = document.getElementById("sheet"), mainEl = document.getElementById("main");
+const isSheet = () => matchMedia("(max-width: 820px)").matches;
+const SHEET = { peek: () => document.getElementById("sheet-head").offsetHeight + 22, half: () => mainEl.clientHeight * 0.5, full: () => mainEl.clientHeight - 8 };
+let sheetState = "half";
+function applySheetPad() { if (mapReady) mapgl.setPadding({ top: 0, left: 0, right: 0, bottom: isSheet() ? sheet.offsetHeight : 0 }); }
+function setSheet(st, h) {
+  if (!isSheet()) return;
+  sheetState = st;
+  sheet.style.setProperty("--sheet-h", Math.round(h ?? SHEET[st]()) + "px");
+  setTimeout(applySheetPad, 240);
+}
+{
+  let startY = 0, startH = 0, moved = false, dragging = false;
+  const down = e => { if (!isSheet() || e.target.closest("button, a, input, select")) return; dragging = true; moved = false; startY = e.clientY; startH = sheet.offsetHeight; sheet.classList.add("dragging"); e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const move = e => { if (!dragging) return; const dy = e.clientY - startY; if (Math.abs(dy) > 4) moved = true; const h = Math.max(SHEET.peek(), Math.min(SHEET.full(), startH - dy)); sheet.style.setProperty("--sheet-h", h + "px"); };
+  const up = e => {
+    if (!dragging) return; dragging = false; sheet.classList.remove("dragging");
+    const h = sheet.offsetHeight;
+    if (!moved) return setSheet(sheetState === "peek" ? "half" : sheetState === "half" ? "full" : "half");
+    const near = ["peek", "half", "full"].map(k => [k, Math.abs(SHEET[k]() - h)]).sort((a, b) => a[1] - b[1])[0][0];
+    setSheet(near);
+  };
+  for (const el of [document.getElementById("sheet-grip"), document.getElementById("sheet-head")]) { el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up); }
+  addEventListener("resize", () => setSheet(sheetState));
+}
+// 場所の名前を押した: シートの上に詳しく出し、地図をその場所へ
+function selectSpot(id) {
+  const s = findSpot(id); if (!s) return;
+  ui.spot = id; ui.open = id; ui.hl = null;
+  renderPanel();
+  if (sheetState === "peek") setSheet("half");
+  const card = panel.querySelector(".selcard"); // 選んだ場所のカードが見えるところまで
+  panel.scrollTop = card ? card.offsetTop - panel.offsetTop - 8 : 0;
+  centerOn(s);
+}
 document.getElementById("ly-rail").onchange = e => { state.layers.rail = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-bus").onchange = e => { state.layers.bus = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-mine").onchange = e => { state.layers.mine = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-muni").onchange = e => { state.layers.muni = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-b3d").onchange = e => { state.layers.b3d = e.target.checked; save(); drawMap(true); if (mapReady) mapgl.easeTo({ pitch: state.layers.b3d ? 50 : 0, duration: 800 }); };
-document.getElementById("mapsel").onchange = e => { state.cur = e.target.value; save(); render(); };
+document.getElementById("mapsel").onchange = e => { if (e.target.value === "__new") { e.target.value = state.cur; openSetup(); return; } state.cur = e.target.value; save(); render(); };
 document.getElementById("back").onclick = goBack;
 
 boot();
