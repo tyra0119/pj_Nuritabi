@@ -1901,9 +1901,13 @@ const scrollPos = () => panelScrolls() ? panel.scrollTop : window.scrollY;
 const navState = (from, fromPref, auto) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref, auto: ui.view === "detail" && (auto === undefined ? !!history.state?.auto : auto) });
 function saveNav() { try { history.replaceState(navState(), ""); } catch (e) {} }
 function pushNav(fromView, fromPref = null, auto = false) { navIdx++; try { history.pushState(navState(fromView, fromPref, auto), ""); } catch (e) {} updateBack(); }
-function updateBack() { // 戻り先の名前を出す
-  const b = document.getElementById("back"), from = history.state?.from;
-  b.textContent = from === "list" ? "← マイリスト" : from === "detail" && history.state?.fromPref && PREF[history.state.fromPref] ? `← ${PREF[history.state.fromPref].name}` : "← 全国";
+// 見出しの「← 全国」はいつも全国へ（利用者「右上の『←xx』は、全国に戻るでいい」）。一つ前の画面へはスマホ・ブラウザの戻る
+function updateBack() { document.getElementById("back").textContent = "← 全国"; }
+function goNational() {
+  if (ui.view === "over") return;
+  const from = ui.view, fromPref = ui.pref; saveNav();
+  ui.view = "over"; ui.pref = null; ui.cell = null; ui.spot = null; ui.hl = null; ui.line = null; ui.q = ""; ui.open = null;
+  render(); pushNav(from, fromPref); setSheet("peek");
 }
 function goBack() {
   if (navIdx > 0 && history.state?.nt) { history.back(); return; }
@@ -2335,7 +2339,7 @@ document.getElementById("ly-mine").onchange = e => { state.layers.mine = e.targe
 document.getElementById("ly-muni").onchange = e => { state.layers.muni = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-b3d").onchange = e => { state.layers.b3d = e.target.checked; save(); drawMap(true); if (mapReady) mapgl.easeTo({ pitch: state.layers.b3d ? 50 : 0, duration: 800 }); };
 document.getElementById("mapsel").onchange = e => { if (e.target.value === "__new") { e.target.value = state.cur; openSetup(); return; } state.cur = e.target.value; markVer++; ui.spot = null; ui.cell = null; ui.hl = null; save(); render(); toast(`「${esc(curMap().name)}」の記録に切り替えました`); };
-document.getElementById("back").onclick = goBack;
+document.getElementById("back").onclick = goNational;
 
 boot();
 </script>
