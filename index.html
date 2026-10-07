@@ -706,8 +706,22 @@ async function loadPref(pid) {
   });
   const d = { spots, byId: new Map(spots.map(s => [s.id, s])), cycles: (j.cycles || []).map(([name, lat, lon, sys, sid]) => ({ name, lat, lon, sys, sid })), lines: j.lines, lineIds: new Map(j.lines.map((l, i) => [l, j.lineIds?.[i] || ""])) };
   prefData.set(pid, d);
+  rekeyRecords(pid, d);
   backfillMu(pid, d);
   return d;
+}
+// 場所の ID を直したとき（都市公園は「u県-名前」→「u県-市区町村-名前」、重なりには「@メッシュ」）、古い ID の記録を新しい ID に付け替える
+function rekeyRecords(pid, d) {
+  let n = 0;
+  for (const m of state.maps) for (const box of [m.visits, m.marks]) for (const id of Object.keys(box)) {
+    const r = box[id]; if (r.p !== pid || d.byId.has(id)) continue;
+    const cands = d.spots.filter(s => s.name === r.n && s.c === r.c && (s.id.startsWith(id + "@") || (id[0] === "u" && s.id[0] === "u" && s.id.endsWith("-" + r.n))));
+    if (!cands.length) continue;
+    const near = r.la != null ? cands.sort((a, b) => Math.hypot(a.lat - r.la, a.lon - r.lo) - Math.hypot(b.lat - r.la, b.lon - r.lo))[0] : cands[0];
+    if (box[near.id]) continue;
+    box[near.id] = r; delete box[id]; n++;
+  }
+  if (n) { markVer++; save(); }
 }
 // 市区町村の単位ができる前の記録には番号が無いので、県のデータを読んだときに補う
 function backfillMu(pid, d) {
