@@ -1087,6 +1087,8 @@ const setData = (id, data) => mapgl.getSource(id)?.setData(data);
 const vis = (id, on) => { if (mapgl.getLayer(id)) mapgl.setLayoutProperty(id, "visibility", on ? "visible" : "none"); };
 
 // いまの画面に合わせて、重ねる層の中身を入れ替える。keepZoom でなければカメラも合わせる
+// 地図が県を出しているか。メニュー・探すを開いている間も、後ろの地図はその前の画面（全国か県か）のまま
+const mapDetail = () => ui.view === "detail" || ((ui.view === "menu" || ui.view === "search") && ui.lastMap === "detail" && !!ui.pref);
 function drawMap(keepZoom) {
   if (!IDX) return;
   W = wrap.clientWidth; H = wrap.clientHeight;
@@ -1095,7 +1097,7 @@ function drawMap(keepZoom) {
   if (!mapReady) return; // 地図ができたら onStyleLoad から呼ばれる
   hideTip();
   const map = curMap(); if (!map) return;
-  const detail = ui.view === "detail", P = detail ? PREF[ui.pref] : null, C = n => cssVar(n);
+  const detail = mapDetail(), P = detail ? PREF[ui.pref] : null, C = n => cssVar(n);
   // 県の色
   const S = summary(map), lvCol = ["--land", "--lv1", "--lv2", "--lv3", "--lv4"].map(C);
   setData("nt-prefs", fc(FEATURES.map(f => {
@@ -1115,14 +1117,14 @@ function drawMap(keepZoom) {
     // 市区町村の地図は、この地図の対象の場所が無い市区町村も薄い灰色で出す（何もないのか、まだ読んでいないのか分かるように）
     const none = () => map.size !== "mu" ? [] : (MUNIGEO.get(ui.pref) || []).map((_, i) => `U${ui.pref}:${i}`).filter(c => !cellCodes.has(c)).map(c => cellFeat(c, { st: -1 }));
     const put = () => setData("nt-cells", feats([...none(), ...T.map(c => cellFeat(c, { st: F.has(c) ? (F.get(c) ? 2 : 1) : 0 }))]));
-    if (map.size === "mu") { setData("nt-cells", EMPTY); const pid = ui.pref; loadMuni(pid).then(() => { if (ui.view === "detail" && ui.pref === pid && curMap()?.size === "mu") { put(); setOnCell(ui.cell); highlightLine(); } }); }
+    if (map.size === "mu") { setData("nt-cells", EMPTY); const pid = ui.pref; loadMuni(pid).then(() => { if (mapDetail() && ui.pref === pid && curMap()?.size === "mu") { put(); setOnCell(ui.cell); highlightLine(); } }); }
     else put();
     setData("nt-grid", map.size === "mu" ? EMPTY : fc(P.m2.map(c => ({ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: {} }))));
   } else if (!detail && map.size !== "pref") { // 全国: 塗ったマスだけ（市区町村は、その県の境界を読んでから）
     const list = []; for (const pid in S.F) for (const [c, tr] of S.F[pid].all) list.push([c, tr, +pid]);
     const put = () => setData("nt-cells", feats(list.map(([c, tr]) => cellFeat(c, { st: tr ? 2 : 1 }))));
     put(); setData("nt-grid", EMPTY);
-    if (map.size === "mu") Promise.all([...new Set(list.map(x => x[2]))].map(loadMuni)).then(() => { if (ui.view !== "detail" && curMap()?.size === "mu") put(); });
+    if (map.size === "mu") Promise.all([...new Set(list.map(x => x[2]))].map(loadMuni)).then(() => { if (!mapDetail() && curMap()?.size === "mu") put(); });
   } else { setData("nt-cells", EMPTY); setData("nt-grid", EMPTY); }
   if (map.size === "mu" && [...Object.values(state.visits), ...Object.values(state.marks)].some(r => r.mu == null)) ensureMu();
   setOnCell(detail ? ui.cell : null);
@@ -1135,7 +1137,7 @@ function drawMap(keepZoom) {
   const muniOn = detail && state.layers.muni;
   vis("nt-muni", muniOn); vis("nt-muni-label", muniOn);
   if (muniOn) { const pid = ui.pref; loadMuni(pid).then(list => {
-    if (ui.view !== "detail" || ui.pref !== pid) return;
+    if (!mapDetail() || ui.pref !== pid) return;
     setData("nt-muni", fc([{ type: "Feature", geometry: { type: "MultiLineString", coordinates: list.flatMap(m => m.rings) }, properties: {} }]));
     setData("nt-munilabel", fc(list.map(m => ({ type: "Feature", geometry: { type: "Point", coordinates: [m.lon, m.lat] }, properties: { name: m.name, rank: -m.rings.reduce((a, r) => a + r.length, 0) } }))));
   }); }
@@ -1145,7 +1147,7 @@ function drawMap(keepZoom) {
   setData("nt-marks", EMPTY); setData("nt-spots", EMPTY);
   for (const id of SPOT_LAYERS) vis(id, detail && state.layers.spots);
   setData("nt-sel", EMPTY);
-  if (detail) { const pid = ui.pref; loadPref(pid).then(d => { if (ui.view === "detail" && ui.pref === pid) { drawMarks(map, d); drawPins(); drawSel(); } }).catch(() => toast("この県のデータを読み込めませんでした")); }
+  if (detail) { const pid = ui.pref; loadPref(pid).then(d => { if (mapDetail() && ui.pref === pid) { drawMarks(map, d); drawPins(); drawSel(); } }).catch(() => toast("この県のデータを読み込めませんでした")); }
   drawPins();
   highlightLine();
   // カメラ
@@ -1210,12 +1212,12 @@ function drawPins() { // 行きたい・保留・行った
   if (!state.layers.mine) return;
   const L = ui.list, inList = x => ui.view !== "list" || ((L.tab === "visit" ? x.k[0] === "v" : x.k === L.tab) && (!L.pref || x.r.p === +L.pref) && (L.cat === "" || x.r.c === +L.cat || (L.cat === "top" && x.r.top)));
   const order = { hold: 0, vo: 1, vt: 1, want: 2 };
-  const list = myRecords(ui.view === "detail" ? ui.pref : null).filter(inList).sort((a, b) => order[a.k] - order[b.k]);
+  const list = myRecords(mapDetail() ? ui.pref : null).filter(inList).sort((a, b) => order[a.k] - order[b.k]);
   setData("nt-pins", fc(list.map(x => ({ type: "Feature", geometry: { type: "Point", coordinates: posOf(x.id, x.r) }, properties: { id: x.id, p: x.r.p, k: x.k, t: PIN[x.k].t, col: cssVar(PIN[x.k].col), sel: ui.spot === x.id } }))));
 }
 function drawSel() { // 選んだ場所の印
   if (!mapReady) return;
-  const sid = ui.spot || ui.hl, s = ui.view === "detail" && sid ? prefData.get(ui.pref)?.byId.get(sid) : null;
+  const sid = ui.spot || ui.hl, s = mapDetail() && sid ? prefData.get(ui.pref)?.byId.get(sid) : null;
   if (!s) return setData("nt-sel", EMPTY);
   const v = !!state.visits[s.id], col = cssVar(`--c-${CATS[s.c].k}`);
   setData("nt-sel", fc([{ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, mk: CATS[s.c].mk, fill: v ? col : cssVar("--panel"), tcol: v ? cssVar("--marker-ink") : col } }]));
@@ -1310,7 +1312,7 @@ function drawLegend() {
   const pins = state.layers.mine && (Object.keys(state.visits).length || Object.keys(state.marks).length)
     ? `<span><b class="pin" style="background:var(--c-matsuri)"></b>行きたい</span><span><b class="pin" style="background:var(--muted)"></b>保留</span>` : "";
   const lv = [1, 2, 3, 4].map(l => `<span><i style="background:var(--lv${l})"></i>${LV_NAME[l]}</span>`).join("");
-  if (ui.view !== "detail") L.innerHTML = lv + (map.size !== "pref" ? `<span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>` : "");
+  if (!mapDetail()) L.innerHTML = lv + (map.size !== "pref" ? `<span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>` : "");
   else if (map.size === "pref") L.innerHTML = lv;
   else L.innerHTML = `<span><i style="background:var(--target);border:1px dashed var(--accent)"></i>まだ塗れる</span><span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>${map.size === "mu" ? `<span><i style="background:color-mix(in srgb, var(--muted) 40%, transparent)"></i>対象の場所なし</span>` : ""}`;
   L.innerHTML += pins;
@@ -1439,7 +1441,7 @@ function renderMenuPanel() {
     map.cats = cats; ui.cell = null; ui.line = null; ui.spot = null; save();
     const S = summary(map);
     toast(`塗るものを変えました。塗ったのは ${S.cells.toLocaleString()} / ${S.total.toLocaleString()} ${SIZES[map.size].unit}`);
-    renderHeader(); renderMenuPanel();
+    renderHeader(); renderMenuPanel(); drawMap(true); // メニューを開いたままでも、後ろの地図を描き直す
   };
   const nameIn = document.getElementById("m-name"), nameOk = document.getElementById("m-name-ok"), nameMsg = document.getElementById("m-name-msg");
   nameIn.oninput = () => { const v = nameIn.value.trim(), taken = state.maps.some(m => m !== map && m.name === v); nameOk.disabled = !v || v === map.name || taken; nameMsg.textContent = taken ? "同じ名前の地図があります" : ""; };
@@ -1608,6 +1610,7 @@ function setMapSize(k) {
   if (renamed !== map.name && !state.maps.some(m => m !== map && m.name === renamed)) map.name = renamed;
   ui.cell = null; ui.line = null;
   save(); rerenderKeep();
+  if (ui.view === "menu" || ui.view === "search") drawMap(true); // メニューから変えたときも、後ろの地図を描き直す
   const S = summary(map);
   toast(`マスの細かさを「${SIZES[k].label}」にしました。塗ったのは ${S.cells.toLocaleString()} / ${S.total.toLocaleString()} ${SIZES[k].unit}`);
 }
