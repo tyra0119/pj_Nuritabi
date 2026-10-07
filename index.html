@@ -95,6 +95,9 @@ a { color: var(--accent); }
 .legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11px; color: var(--muted); max-width: calc(100% - 24px); }
 .legend b.pin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; border: 1.5px solid var(--panel); box-shadow: 0 0 0 1px var(--border); }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--border); }
+.legend .lg-rail { display: flex; gap: 4px 10px; flex-wrap: wrap; align-items: center; flex-basis: 100%; padding-top: 4px; border-top: 1px solid var(--line); }
+.legend .lg-rail b { font-weight: 600; color: var(--ink); }
+.legend i.ln { width: 16px; height: 3px; border: 0; border-radius: 2px; vertical-align: 3px; }
 .sizeseg { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; box-shadow: 0 2px 8px rgb(0 0 0 / .12); z-index: 2; touch-action: none; }
 .sizeseg button, .sizeseg2 button { border: 0; background: transparent; padding: 5px 11px; font-size: 12px; white-space: nowrap; color: var(--ink); }
 .sizeseg button[aria-pressed="true"], .sizeseg2 button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
@@ -403,7 +406,7 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
   .sizeseg button { padding: 5px 7px; font-size: 11px; }
   .maptools { top: 10px; left: 10px; }
   .layers { top: 46px; left: 10px; }
-  .legend { left: 10px; right: 10px; bottom: auto; top: 46px; }
+  .legend { left: 10px; right: 56px; bottom: auto; top: 46px; max-width: none; } /* 右の拡大・縮小ボタンに重ねない */
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
@@ -598,8 +601,14 @@ async function boot() {
 function decodeLine(str, prec = 1e4) { let i = 0, lat = 0, lon = 0; const o = []; while (i < str.length) { for (const k of [0, 1]) { let r = 0, sh = 0, b; do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); const d = (r & 1) ? ~(r >> 1) : (r >> 1); if (k) lon += d; else lat += d; } o.push([lon / prec, lat / prec]); } return o; }
 let RAIL = null, railLoading = null;
 function loadRail() { // 鉄道（国土数値情報 N02）。[[lon, lat], …] の線の集まり
-  return railLoading ||= fetch("data/rail.json").then(r => r.json()).then(j => { RAIL = { main: [], oki: [], bb: new Map() }; for (const l of j.lines) for (const e of l[3]) { const pts = decodeLine(e); (pts[0][1] < 27.5 && pts[0][0] < 129.5 ? RAIL.oki : RAIL.main).push(pts); let a = 180, b = 90, c = -180, d = -90; for (const [x, y] of pts) { if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y; } RAIL.bb.set(pts, [a, b, c, d]); } drawMap(true); }).catch(() => {});
+  // 線の色: ODPT の路線色（odpt:color）があればそれ、無ければ種類ごとの色。[名前, 事業者, 種類, [区間], 色]
+  return railLoading ||= fetch("data/rail.json").then(r => r.json()).then(j => {
+    RAIL = j.lines.map(([name, op, kind, segs, col]) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: segs.map(e => decodeLine(e)) }, properties: { name, op, col: col || RAIL_KIND[kind]?.col || "#4A5A63", w: kind === 1 ? 1.6 : 1, odpt: col ? 1 : 0 } }));
+    drawMap(true);
+  }).catch(() => {});
 }
+// 鉄道の種類（国土数値情報 N02 の事業者種別）ごとの色。ODPT の路線色が無い路線に使う
+const RAIL_KIND = { 1: { label: "新幹線", col: "#1C4FA0" }, 2: { label: "JR", col: "#2E8B57" }, 3: { label: "公営", col: "#8E44AD" }, 4: { label: "私鉄", col: "#3F7CB8" }, 5: { label: "第三セクター", col: "#8A6D3B" } };
 let BUSALL = null, busAllP = null;
 function loadBusAll() { // 全国の地図用の路線バス（200 m ほどで間引いたもの）
   return busAllP ||= fetch("data/bus-all.json").then(r => r.json()).then(j => { BUSALL = { main: [], oki: [] }; for (const e of j.bus) { const pts = decodeLine(e, j.prec); (pts[0][1] < 27.5 && pts[0][0] < 129.5 ? BUSALL.oki : BUSALL.main).push(pts); } busKey = ""; drawBus(); }).catch(() => { busAllP = null; });
@@ -1031,7 +1040,7 @@ function addOverlay() {
   add({ id: "nt-cells-open", type: "line", source: "nt-cells", filter: ["==", ["get", "st"], 0], paint: { "line-color": C("--accent"), "line-width": 0.8, "line-opacity": 0.6, "line-dasharray": [3, 2] } }, true);
   add({ id: "nt-muni", type: "line", source: "nt-muni", paint: { "line-color": C("--muted"), "line-width": 0.8, "line-opacity": 0.7, "line-dasharray": [3, 2] } }, true);
   add({ id: "nt-bus", type: "line", source: "nt-bus", layout: { "line-cap": "round" }, paint: { "line-color": C("--bus"), "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 12, 1.2, 16, 2.6], "line-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.4, 14, 0.6] } }, "line");
-  add({ id: "nt-rail", type: "line", source: "nt-rail", layout: { "line-cap": "round" }, paint: { "line-color": C("--rail"), "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 12, 1.6, 16, 3], "line-opacity": 0.6 } }, "line");
+  add({ id: "nt-rail", type: "line", source: "nt-rail", layout: { "line-cap": "round" }, paint: { "line-color": ["get", "col"], "line-width": ["interpolate", ["linear"], ["zoom"], 5, ["*", 0.6, ["get", "w"]], 12, ["*", 1.8, ["get", "w"]], 16, ["*", 3.2, ["get", "w"]]], "line-opacity": 0.85 } }, "line");
   add({ id: "nt-pref-line", type: "line", source: "nt-prefs", paint: { "line-color": C("--border"), "line-width": 0.8 } }, true);
   if (basemapOk) add({ // 3D の建物（背景の地図の建物の高さを立ち上げる。BusTracker と同じ）
     id: "nt-b3d", type: "fill-extrusion", source: "carto", "source-layer": "building", minzoom: 14, layout: { visibility: "none" },
@@ -1096,7 +1105,7 @@ function drawMap(keepZoom) {
   setData("nt-pop", EMPTY);
   // 路線
   vis("nt-rail", state.layers.rail); vis("nt-bus", state.layers.bus);
-  if (state.layers.rail) { if (RAIL) { if (!railSet) { setData("nt-rail", fc([{ type: "Feature", geometry: { type: "MultiLineString", coordinates: [...RAIL.main, ...RAIL.oki] }, properties: {} }])); railSet = true; } } else loadRail(); }
+  if (state.layers.rail) { if (RAIL) { if (!railSet) { setData("nt-rail", fc(RAIL)); railSet = true; } } else loadRail(); }
   drawBus();
   // 市区町村
   const muniOn = detail && state.layers.muni;
@@ -1187,6 +1196,10 @@ function bindMapEvents() {
     if (!mapReady) return;
     const f = featureAt(e.point), p = f?.properties, ev = e.originalEvent, map = curMap();
     mapgl.getCanvas().style.cursor = f && (f.layer.id !== "nt-pref-fill" || ui.view !== "detail" || p.id !== ui.pref) ? "pointer" : "";
+    if (!f && !MOBILE && state.layers.rail && mapgl.getLayer("nt-rail")) { // 鉄道の線の上: 路線名
+      const r = mapgl.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], { layers: ["nt-rail"] })[0]?.properties;
+      if (r) return showTip(ev, `<b>${esc(r.name)}</b>${esc(r.op)}${r.odpt ? "・色は ODPT の路線色" : ""}`);
+    }
     if (!f || MOBILE) return hideTip();
     if (f.layer.id === "nt-sel") { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>選んだ場所・${CATS[s.c].label}`); }
     else if (f.layer.id === "nt-pins") { const r = state.visits[p.id] || state.marks[p.id]; if (r) showTip(ev, `<b>${r.top ? "★" : ""}${esc(r.n)}</b>${PIN[p.k].label}${p.k[0] === "v" ? "・" + r.d.replace(/-/g, "/") : ""}・${PREF[r.p]?.name}`); }
@@ -1257,6 +1270,7 @@ function drawLegend() {
   else if (map.size === "pref") L.innerHTML = lv;
   else L.innerHTML = `<span><i style="background:var(--target);border:1px dashed var(--accent)"></i>まだ塗れる</span><span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>`;
   L.innerHTML += pins;
+  if (state.layers.rail) L.innerHTML += `<div class="lg-rail"><b>鉄道</b>${Object.values(RAIL_KIND).map(k => `<span><i class="ln" style="background:${k.col}"></i>${k.label}</span>`).join("")}<span><i class="ln" style="background:linear-gradient(90deg,#F62E36,#FF9500,#00BB85,#009BBF)"></i>首都圏は ODPT の路線色</span></div>`;
 }
 
 function rectOf(proj, code, min = 0) { // 設定画面のマスの見本（d3 の投影）で使う
