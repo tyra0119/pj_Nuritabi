@@ -486,7 +486,7 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
       <div class="sheet-grip" id="sheet-grip" aria-hidden="true"><span></span></div>
       <div class="sheet-head" id="sheet-head">
         <div class="sh-row"><button class="backbtn" id="back" type="button" hidden>← 全国</button><div class="sh-title" id="sh-title"></div></div>
-        <div class="sh-stats"><span><b id="st-pref">0</b>/47 都道府県</span><span><b id="st-cell">0</b><i id="st-cell-t">/0</i> <i id="st-cell-l">マス</i></span><span class="tr">公共交通 <b id="st-tr">0</b>%</span></div>
+        <div class="sh-stats"><span><b id="st-pref">0</b>/47 都道府県</span><span><b id="st-cell">0</b><i id="st-cell-t">/0</i> <i id="st-cell-l">マス</i></span></div>
       </div>
       <div class="panel" id="panel"></div>
     </aside>
@@ -530,10 +530,6 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
         <div class="cands" id="s-cands"></div>
       </div>
     </div>
-    <label class="optrow" for="s-tr">
-      <input type="checkbox" id="s-tr">
-      <span><b>公共交通で行った場所だけ塗る</b><small>電車・バス・シェアサイクルで行ったときだけマスが塗られます。車などで行った記録も残りますが、マスは塗られません。</small></span>
-    </label>
     <div class="namefield">
       <label for="s-name"><b>地図の名前</b></label>
       <input id="s-name" type="text" maxlength="40" aria-describedby="s-name-err">
@@ -1062,9 +1058,8 @@ function filled(map) { // 県 → { all: Map(マス → 公共交通か), touche
     if (!CATS[v.c] || !inMap(map, v)) continue;
     const P = by[v.p] ||= { all: new Map(), touched: false };
     P.touched = true;
-    if (map.transitOnly && !v.t) continue;
     const c = cellOf(map.size, v);
-    if (c) P.all.set(c, P.all.get(c) || !!v.t);
+    if (c) P.all.set(c, true);
   }
   return by;
 }
@@ -1079,9 +1074,9 @@ function summary(map) {
 /* ================= 実績 ================= */
 const BADGES = [
   ["はじめの一歩", "1か所に行った", T => T.n >= 1],
-  ["公共交通デビュー", "公共交通で1か所", T => T.tr >= 1],
-  ["乗り継ぎ上手", "公共交通で10か所", T => T.tr >= 10],
-  ["公共交通の達人", "公共交通で50か所", T => T.tr >= 50],
+  ["旅のはじまり", "10か所に行った", T => T.n >= 10],
+  ["旅の達人", "50か所に行った", T => T.n >= 50],
+  ["旅の名人", "100か所に行った", T => T.n >= 100],
   ["名所めぐり", "名所 10か所", T => T.top >= 10],
   ["湯めぐり", "温泉 5か所", T => T.c.onsen >= 5],
   ["道の駅スタンプ帳", "道の駅 10か所", T => T.c.michi >= 10],
@@ -1118,7 +1113,7 @@ const JAPAN = [[122.9, 24.0], [146.0, 45.6]];
 const isDark = () => document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 let mapgl = null, mapReady = false, basemapOk = true, fallbackUsed = false, textFont = ["Open Sans Regular"], beforeId, lineBefore, firstView = true;
-const PIN = { want: { label: "行きたい", t: "行", col: "--c-matsuri" }, hold: { label: "保留", t: "保", col: "--muted" }, vt: { label: "公共交通で行った", t: "済", col: "--fill-tr" }, vo: { label: "車などで行った", t: "済", col: "--fill" } };
+const PIN = { want: { label: "行きたい", t: "行", col: "--c-matsuri" }, hold: { label: "保留", t: "保", col: "--muted" }, vt: { label: "行った", t: "済", col: "--fill-tr" }, vo: { label: "行った", t: "済", col: "--fill-tr" } };
 const EMPTY = { type: "FeatureCollection", features: [] };
 const fc = features => ({ type: "FeatureCollection", features });
 const boxPoly = code => { const [x0, y0, x1, y1] = meshBox(code); return [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]; };
@@ -1146,7 +1141,7 @@ function bboxOf(geom) { const [[x0, y0], [x1, y1]] = d3.geoBounds(geom); return 
 
 function myRecords(pid) { // 行った場所と、印（行きたい・保留）を付けた場所。pid があればその県だけ
   const out = [];
-  for (const [id, v] of Object.entries(state.visits)) if (!pid || v.p === pid) out.push({ id, r: v, k: v.t ? "vt" : "vo" });
+  for (const [id, v] of Object.entries(state.visits)) if (!pid || v.p === pid) out.push({ id, r: v, k: "vt" });
   for (const [id, m] of Object.entries(state.marks)) if (!state.visits[id] && (!pid || m.p === pid)) out.push({ id, r: m, k: m.s === "hold" ? "hold" : "want" });
   return out;
 }
@@ -1211,7 +1206,7 @@ function addOverlay() {
   const add = (l, below) => mapgl.addLayer(l, below === "line" ? lineBefore : below ? beforeId : undefined);
   add({ id: "nt-pref-fill", type: "fill", source: "nt-prefs", paint: { "fill-color": ["get", "fill"], "fill-opacity": ["get", "op"] } }, true);
   add({ id: "nt-grid", type: "line", source: "nt-grid", paint: { "line-color": C("--border"), "line-width": 0.5, "line-opacity": 0.5 } }, true);
-  add({ id: "nt-cells", type: "fill", source: "nt-cells", paint: { "fill-color": ["match", ["get", "st"], -1, C("--muted"), 0, C("--target"), 1, C("--fill"), C("--fill-tr")], "fill-opacity": ["match", ["get", "st"], -1, 0.32, 0, 0.35, 0.65] } }, true);
+  add({ id: "nt-cells", type: "fill", source: "nt-cells", paint: { "fill-color": ["match", ["get", "st"], -1, C("--muted"), 0, C("--target"), C("--fill-tr")], "fill-opacity": ["match", ["get", "st"], -1, 0.32, 0, 0.35, 0.65] } }, true);
   add({ id: "nt-cells-open", type: "line", source: "nt-cells", filter: ["==", ["get", "st"], 0], paint: { "line-color": C("--accent"), "line-width": 0.8, "line-opacity": 0.6, "line-dasharray": [3, 2] } }, true);
   add({ id: "nt-muni", type: "line", source: "nt-muni", paint: { "line-color": C("--muted"), "line-width": 0.8, "line-opacity": 0.7, "line-dasharray": [3, 2] } }, true);
   add({ id: "nt-bus", type: "line", source: "nt-bus", layout: { "line-cap": "round" }, paint: { "line-color": C("--bus"), "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 12, 1.2, 16, 2.6], "line-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.4, 14, 0.6] } }, "line");
@@ -1441,7 +1436,7 @@ function bindMapEvents() {
     if (f.layer.id === "nt-sel") { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>選んだ場所・${CATS[s.c].label}`); }
     else if (f.layer.id === "nt-pins") { const r = state.visits[p.id] || state.marks[p.id]; if (r) showTip(ev, `<b>${r.top ? "★" : ""}${esc(r.n)}</b>${PIN[p.k].label}${p.k[0] === "v" ? "・" + r.d.replace(/-/g, "/") : ""}・${PREF[r.p]?.name}`); }
     else if (f.layer.id === "nt-marks" || f.layer.id.startsWith("nt-spots")) { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>${p.kind === "pick" ? "このマスのおすすめ・" + esc(whyText(s)) : CATS[s.c].label + (p.out ? "・この地図の対象外" : "") + (state.visits[s.id] ? "・行った" : "")}`); }
-    else if (f.layer.id === "nt-cells" && ui.view === "detail") showTip(ev, p.st === -1 ? `<b>${esc(cellName(p.c))}</b>この地図の対象の場所がありません` : `<b>${esc(cellName(p.c))}</b>${p.st ? (p.st === 2 ? "公共交通で塗った" : "車などで塗った") : "まだ塗れる"}・押すと中の場所が出ます`);
+    else if (f.layer.id === "nt-cells" && ui.view === "detail") showTip(ev, p.st === -1 ? `<b>${esc(cellName(p.c))}</b>この地図の対象の場所がありません` : `<b>${esc(cellName(p.c))}</b>${p.st ? "塗った" : "まだ塗れる"}・押すと中の場所が出ます`);
     else if (f.layer.id === "nt-pref-fill") {
       if (ui.view === "detail") { if (p.id !== ui.pref) showTip(ev, `<b>${p.name}</b>押すと移動`); else hideTip(); }
       else { const n = summary(map).F[p.id]?.all.size || 0, t = targets(map, p.id).size; showTip(ev, `<b>${p.name}</b>${LV_NAME[level(n, t)]}・${SIZES[map.size].label} ${n}/${t}`); }
@@ -1505,9 +1500,9 @@ function drawLegend() {
   const pins = state.layers.mine && (Object.keys(state.visits).length || Object.keys(state.marks).length)
     ? `<span><b class="pin" style="background:var(--c-matsuri)"></b>行きたい</span><span><b class="pin" style="background:var(--muted)"></b>保留</span>` : "";
   const lv = [1, 2, 3, 4].map(l => `<span><i style="background:var(--lv${l})"></i>${LV_NAME[l]}</span>`).join("");
-  if (!mapDetail()) L.innerHTML = lv + (map.size !== "pref" ? `<span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>` : "");
+  if (!mapDetail()) L.innerHTML = lv + (map.size !== "pref" ? `<span><i style="background:var(--fill-tr)"></i>塗った</span>` : "");
   else if (map.size === "pref") L.innerHTML = lv;
-  else L.innerHTML = `<span><i style="background:var(--target);border:1px dashed var(--accent)"></i>まだ塗れる</span><span><i style="background:var(--fill-tr)"></i>公共交通で塗った</span><span><i style="background:var(--fill)"></i>車などで塗った</span>${map.size === "mu" ? `<span><i style="background:color-mix(in srgb, var(--muted) 40%, transparent)"></i>対象の場所なし</span>` : ""}`;
+  else L.innerHTML = `<span><i style="background:var(--target);border:1px dashed var(--accent)"></i>まだ塗れる</span><span><i style="background:var(--fill-tr)"></i>塗った</span>${map.size === "mu" ? `<span><i style="background:color-mix(in srgb, var(--muted) 40%, transparent)"></i>対象の場所なし</span>` : ""}`;
   L.innerHTML += pins;
   if (state.layers.rail) L.innerHTML += `<div class="lg-rail"><b>鉄道</b>${Object.values(RAIL_KIND).map(k => `<span><i class="ln" style="background:${k.col}"></i>${k.label}</span>`).join("")}<span><i class="ln" style="background:linear-gradient(90deg,#F62E36,#FF9500,#00BB85,#009BBF)"></i>首都圏は ODPT の路線色</span></div>`;
 }
@@ -1537,8 +1532,8 @@ function renderOverviewPanel() {
   panel.innerHTML = `
     <div class="sec ph">
       ${catChips(map.cats)}
-      <p class="note">${SIZES[map.size].label}（${SIZES[map.size].lvl}）・全国 ${S.total.toLocaleString()} ${SIZES[map.size].unit}${map.transitOnly ? "・公共交通で行った場所だけ塗る" : ""}。地図を拡大するか県を押すと、その県の場所が出ます（動かすと隣の県へ、引くと全国へ）。</p>
-      <ul class="bars">${bar("塗った", S.cells, S.total)}${bar("うち公共交通", S.tr, S.cells, "tr")}</ul>
+      <p class="note">${SIZES[map.size].label}（${SIZES[map.size].lvl}）・全国 ${S.total.toLocaleString()} ${SIZES[map.size].unit}。地図を拡大するか県を押すと、その県の場所が出ます（動かすと隣の県へ、引くと全国へ）。</p>
+      <ul class="bars">${bar("塗った", S.cells, S.total)}</ul>
     </div>
     <div class="sec"><h2>行きたい場所 ${wants.length}か所</h2>${wants.length ? `<ul class="list">${wants.slice(0, 5).map(([id, m]) => `<li class="row"><span class="mk cat-${CATS[m.c]?.k}">${CATS[m.c]?.mk}</span><div class="nm" data-goto="${esc(id)}" data-p="${m.p}" role="button" tabindex="0"><b>${m.top ? '<span class="star">★</span>' : ""}${esc(m.n)}</b><small>${PREF[m.p]?.name || ""}・${m.mu != null ? cellName(`U${m.p}:${m.mu}`) : cellName(m.m3.slice(0, 6))}</small></div></li>`).join("")}</ul>${wants.length > 5 ? `<p class="note"><button type="button" class="linkbtn" data-nav="list">マイリストですべて見る（${wants.length}か所）</button></p>` : ""}` : `<p class="note">場所の♡を押すと、ここに集まります。</p>`}</div>
     <div class="sec"><h2>最近行った場所</h2>${recent ? `<ul class="list">${recent}</ul>` : `<p class="note">まだありません。地図を拡大して、行った場所の✓を押してください。</p>`}</div>
@@ -1679,9 +1674,8 @@ const ICON = {
 function moreHtml(s) {
   const v = state.visits[s.id], m = state.marks[s.id]?.s, id = esc(s.id);
   const hold = `<button type="button" class="mark hold" data-mark="hold" data-id="${id}" aria-pressed="${m === "hold"}">保留</button>`;
-  if (v) return `<div class="more"><span class="done-l ${v.t ? "tr" : "car"}">${v.t ? "公共交通で行った" : "車などで行った"}</span><input type="date" data-date="${id}" value="${v.d}" max="${today()}" aria-label="行った日"><button type="button" class="btn" data-undo="${id}">取り消す</button></div>`;
-  if (TRANSIT.has(s.c)) return `<div class="more"><button type="button" class="go" data-go="${id}" data-t="1">乗り降りした</button>${hold}</div>`;
-  return `<div class="more"><button type="button" class="go" data-go="${id}" data-t="1" title="マスが緑で塗られ、公共交通の記録に数えます">電車・バス・シェアサイクルで行った</button><button type="button" class="go alt" data-go="${id}" data-t="0" title="マスは青で塗られます">車などで行った</button>${hold}</div>`;
+  if (v) return `<div class="more"><span class="done-l tr">行った</span><input type="date" data-date="${id}" value="${v.d}" max="${today()}" aria-label="行った日"><button type="button" class="btn" data-undo="${id}">取り消す</button></div>`;
+  return `<div class="more"><button type="button" class="go" data-go="${id}">行った</button>${hold}</div>`; // 行き方は分けない（利用者「『行った』だけでいい」）
 }
 
 function renderSpotList(d, map, all, selLine) {
@@ -1714,16 +1708,16 @@ function rowHtml(s, o = {}) {
   const tags = `${rowHtml.picks?.has(s.id) ? '<span class="tagp">おすすめ</span>' : ""}${m === "want" && !v ? '<span class="stw">行きたい</span>' : ""}${m === "hold" && !v ? '<span class="sth">保留</span>' : ""}`;
   const nm = `<div class="nm" ${o.goto ? `data-goto="${id}" data-p="${s.pref}"` : `data-sel="${id}"`} role="button" tabindex="0"><b>${s.top ? '<span class="star" title="名所">★</span>' : ""}${esc(s.name)}${tags}</b><small>${o.sub ?? nearText(s)}</small></div>`;
   const heart = v ? `<span class="ib ghost"></span>` : `<button type="button" class="ib heart" data-mark="want" data-id="${id}" aria-pressed="${m === "want"}" aria-label="行きたい" title="行きたい">${ICON.heart}</button>`;
-  const check = `<button type="button" class="ib check${v ? (v.t ? " tr" : " car") : ""}" data-more="${id}" aria-expanded="${open}" aria-label="${v ? "行った記録を見る" : "行った・保留"}" title="${v ? "行った（日付・取り消し）" : "行った・保留"}">${ICON.check}</button>`;
+  const check = `<button type="button" class="ib check${v ? " tr" : ""}" data-more="${id}" aria-expanded="${open}" aria-label="${v ? "行った記録を見る" : "行った・保留"}" title="${v ? "行った（日付・取り消し）" : "行った・保留"}">${ICON.check}</button>`;
   return `<li class="row" data-id="${id}"><span class="mk cat-${CATS[s.c].k}${v ? "" : " off"}">${CATS[s.c].mk}</span>${nm}${heart}${check}${open ? moreHtml(s) : ""}</li>`;
 }
 async function renderDetailPanel() {
   const map = curMap(), P = PREF[ui.pref], pid = ui.pref;
   const F = filled(map)[pid]?.all || new Map(), T = targets(map, pid);
-  let trN = 0; for (const t of F.values()) if (t) trN++;
+
   const lv = level(F.size, T.size);
   panel.innerHTML = `
-    <p class="prefline">この県：塗った ${SIZES[map.size].label} <b>${F.size}</b> / ${T.size}・うち公共交通 <b class="tr">${trN}</b></p>
+    <p class="prefline">この県：塗った ${SIZES[map.size].label} <b>${F.size}</b> / ${T.size}</p>
     <div class="sec" id="spotsec"><p class="note">場所を読み込んでいます…</p></div>`;
   // 読み込み済みなら待たずに続ける（一瞬でも中身が短くなると、スクロールが先頭に戻ってしまう）
   let d = prefData.get(pid);
@@ -1757,7 +1751,7 @@ async function renderDetailPanel() {
     ${ui.cell ? `<div class="filterbar" style="margin-top:8px"><span>${esc(cellName(ui.cell))} の場所</span><button type="button" id="cell-clear">すべて表示</button></div>` : ""}
     ${selSpot ? `<div class="reco selcard" style="margin-top:8px"><div class="lblrow"><span class="lbl">選んだ場所</span><button type="button" class="x" id="sel-close">閉じる</button></div><ul class="list">${rowHtml(selSpot, { open: true })}</ul>${howtoHtml(selSpot)}</div>` : ""}
     ${cellPick && cellPick !== selSpot ? `<div class="reco" style="margin-top:8px"><span class="lbl">このマスのおすすめ</span><ul class="list">${rowHtml(cellPick)}</ul><small class="note">${esc(whyText(cellPick))}</small>${howtoHtml(cellPick)}</div>`
-      : ui.cell && P1 && F.has(ui.cell) ? `<p class="note" style="margin-top:8px">このマスは塗りました。${F.get(ui.cell) ? "公共交通で行きました。" : ""}</p>` : ""}
+      : ui.cell && P1 && F.has(ui.cell) ? `<p class="note" style="margin-top:8px">このマスは塗りました。</p>` : ""}
     ${selLine ? `<div class="filterbar" style="margin-top:8px"><span>${esc(selLine.l)}で行ける場所（まだ塗っていないマス ${selLine.open.size}）</span><button type="button" id="line-clear">路線をやめる</button></div>` : ""}
     <div id="tinfo-pref"></div>
     ${LR.length && !ui.cell && !q ? `<details class="sec" style="margin-top:8px" ${selLine ? "open" : ""}><summary>路線から選ぶ（${LR.length}路線）</summary>
@@ -1765,7 +1759,7 @@ async function renderDetailPanel() {
       <ul class="lines">${LR.slice(0, 15).map(x => `<li><button type="button" data-line="${esc(x.l)}" aria-pressed="${ui.line === x.l}"><span class="ln">${esc(x.l)}</span><span class="cnt">まだ <b>${x.open.size}</b> / ${x.cells.size}マス</span></button></li>`).join("")}</ul></details>` : ""}
     ${nextPicks.length && !selLine ? `<div class="reco" style="margin-top:8px"><span class="lbl">まだ塗っていないマスのおすすめ</span><ul class="list">${nextPicks.map(rowHtml).join("")}</ul><small class="note">優先度は、メニューの「おすすめの選び方」で変えられます。</small></div>` : ""}
     <h2 style="margin-top:14px">${ui.cell ? "このマスの場所" : "場所の一覧"}</h2>
-    <p class="note" style="margin-bottom:6px">名前を押すと詳しく（行き方・次の便）。♡は行きたい、✓は行った（電車・バス・シェアサイクルならマスが<b style="color:var(--fill-tr)">緑</b>、車などなら<b style="color:var(--fill)">青</b>）。</p>
+    <p class="note" style="margin-bottom:6px">名前を押すと詳しく（行き方・次の便）。♡は行きたい、✓は行った（マスが塗られます）・保留。</p>
     <div id="spotlist"></div>`;
   renderSpotList(d, map, base, selLine);
   sec.querySelectorAll("[data-allsp]").forEach(b => b.onclick = () => { state.layers.allSpots = b.dataset.allsp === "1"; save(); rerenderKeep(); });
@@ -1816,7 +1810,6 @@ function renderHeader() {
   document.getElementById("st-cell").textContent = S.cells.toLocaleString();
   document.getElementById("st-cell-t").textContent = "/" + S.total.toLocaleString();
   document.getElementById("st-cell-l").textContent = SIZES[map.size].label;
-  document.getElementById("st-tr").textContent = S.cells ? Math.round(S.tr / S.cells * 100) : 0;
   document.getElementById("back").hidden = ui.view === "over";
   // シートの見出しとタブ
   const tab = ui.view === "list" ? "list" : ui.view === "search" ? "search" : ui.view === "menu" ? "" : "map";
@@ -1851,7 +1844,7 @@ function renderListPanel() {
   if (!list.length) body = `<p class="note">${L.tab === "visit" ? "まだ行った場所がありません。" : L.tab === "want" ? "県の画面で「行きたい」を押すと、ここに集まります。" : "「保留」にした場所はありません。"}</p>`;
   else if (L.tab === "visit" && L.sort !== "pref") { // 行った場所は年月ごとに（旅の記録）
     const by = d3.group(list, r => r.d.slice(0, 7));
-    for (const [ym, rs] of by) body += `<div class="month">${ym.slice(0, 4)}年${+ym.slice(5)}月<span>${rs.length}か所・公共交通 ${rs.filter(r => r.t).length}</span></div><ul class="list">${rs.map(row).join("")}</ul>`;
+    for (const [ym, rs] of by) body += `<div class="month">${ym.slice(0, 4)}年${+ym.slice(5)}月<span>${rs.length}か所</span></div><ul class="list">${rs.map(row).join("")}</ul>`;
   } else if (L.sort === "pref") {
     const by = d3.group(list, r => r.p);
     for (const [pid, rs] of by) body += `<div class="month">${PREF[pid]?.name}<span>${rs.length}か所</span></div><ul class="list">${rs.map(row).join("")}</ul>`;
@@ -1935,20 +1928,18 @@ function flashRow(id) {
 }
 function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 
-function visit(id, byTransit) {
+function visit(id) {
   const s = findSpot(id); if (!s) return;
   const map = curMap(), before = totals(), F0 = filled(map)[s.pref];
   const cell = cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu });
-  const wasFilled = F0?.all.has(cell), wasTr = F0?.all.get(cell);
-  state.visits[id] = { d: today(), p: s.pref, m3: s.m3, ...(s.mu >= 0 ? { mu: s.mu } : {}), c: s.c, t: byTransit ? 1 : 0, n: s.name, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
+  const wasFilled = F0?.all.has(cell);
+  state.visits[id] = { d: today(), p: s.pref, m3: s.m3, ...(s.mu >= 0 ? { mu: s.mu } : {}), c: s.c, n: s.name, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
   if (state.marks[id]) { delete state.marks[id]; markVer++; }
   save();
   const after = totals(), F1 = filled(map)[s.pref], msgs = [];
   if (!before.pset.has(s.pref)) msgs.push(`<b>初上陸</b>${PREF[s.pref].name}に足あと`);
   if (!inMap(map, s)) msgs.push(`<b>記録</b>${esc(s.name)}（${CATS[s.c].label}はこの地図の対象外なので塗りません。メニューの「この地図で塗るもの」で足せます）`);
-  else if (map.transitOnly && !byTransit) msgs.push(`<b>記録</b>この地図は公共交通で行った場所だけ塗ります`);
-  else if (!wasFilled) msgs.push(`<b>塗った</b>${cell ? esc(cellName(cell)) : PREF[s.pref].name}${byTransit ? "（公共交通）" : ""}`);
-  else if (byTransit && !wasTr) msgs.push(`<b>塗り替え</b>公共交通の色になりました`);
+  else if (!wasFilled) msgs.push(`<b>塗った</b>${cell ? esc(cellName(cell)) : PREF[s.pref].name}`);
   const t = targets(map, s.pref).size;
   if (F1 && F1.all.size >= t && (F0?.all.size || 0) < t) msgs.push(`<b>制覇</b>${PREF[s.pref].name}を塗りきりました`);
   after.badges.forEach(b => { if (!before.badges.has(b)) msgs.push(`<b>実績</b>${b}`); });
@@ -1989,7 +1980,7 @@ function bindRowActions(root) {
     if (!wasOpen && s && li) { li.insertAdjacentHTML("beforeend", moreHtml(s)); b.setAttribute("aria-expanded", "true"); ui.open = id; bindRowActions(li.querySelector(".more")); }
   });
   root.querySelectorAll("[data-sel]").forEach(el => { el.onclick = () => selectSpot(el.dataset.sel); el.onkeydown = e => { if (e.key === "Enter") selectSpot(el.dataset.sel); }; });
-  root.querySelectorAll("[data-go]").forEach(b => b.onclick = () => visit(b.dataset.go, b.dataset.t === "1"));
+  root.querySelectorAll("[data-go]").forEach(b => b.onclick = () => visit(b.dataset.go));
   root.querySelectorAll("[data-undo]").forEach(b => b.onclick = () => unvisit(b.dataset.undo));
   root.querySelectorAll("[data-mark]").forEach(b => b.onclick = () => setMark(b.dataset.id, b.dataset.mark));
   root.querySelectorAll("[data-date]").forEach(i => i.onchange = () => setDate(i.dataset.date, i.value));
@@ -2136,23 +2127,23 @@ function countFor(cats, size) {
   return totalTargets(map);
 }
 const PRESETS = [
-  { name: "日本の名所めぐり", sub: "評価の高い観光地で、まず全部の県に足あとを", cats: ["top"], size: "pref", tr: false },
-  { name: "名所を電車とバスで", sub: "名所のある 10km マスを、公共交通だけで塗る", cats: ["top"], size: "m2", tr: true },
-  { name: "全国の温泉めぐり", sub: "1,400 の温泉地で 47 都道府県を", cats: ["onsen"], size: "pref", tr: false },
-  { name: "鉄道でめぐる", sub: "乗り降りした駅のまわり 1km を塗る", cats: ["station"], size: "m3", tr: true },
-  { name: "バスでのんびり", sub: "地方の路線バスに乗って、10km マスを塗る", cats: ["bus"], size: "m2", tr: true },
-  { name: "週末の絶景さんぽ", sub: "自然・絶景と歴史・文化を、電車とバスで", cats: ["nature", "history"], size: "m2", tr: true },
-  { name: "祭りハンター", sub: "全国の祭り・行事で 47 都道府県を", cats: ["matsuri"], size: "pref", tr: false },
-  { name: "道の駅スタンプラリー", sub: "全国 1,145 の道の駅で 10km マスを", cats: ["michi"], size: "m2", tr: false },
+  { name: "日本の名所めぐり", sub: "評価の高い観光地で、まず全部の県に足あとを", cats: ["top"], size: "pref" },
+  { name: "名所を電車とバスで", sub: "名所のある 10km マスを、電車とバスで塗りに行く", cats: ["top"], size: "m2" },
+  { name: "全国の温泉めぐり", sub: "1,400 の温泉地で 47 都道府県を", cats: ["onsen"], size: "pref" },
+  { name: "鉄道でめぐる", sub: "行った駅のまわり 1km を塗る", cats: ["station"], size: "m3" },
+  { name: "バスでのんびり", sub: "地方の路線バスに乗って、10km マスを塗る", cats: ["bus"], size: "m2" },
+  { name: "週末の絶景さんぽ", sub: "自然・絶景と歴史・文化を、電車とバスで", cats: ["nature", "history"], size: "m2" },
+  { name: "祭りハンター", sub: "全国の祭り・行事で 47 都道府県を", cats: ["matsuri"], size: "pref" },
+  { name: "道の駅スタンプラリー", sub: "全国 1,145 の道の駅で 10km マスを", cats: ["michi"], size: "m2" },
 ];
-const presetMatch = p => p.size === draft.size && p.tr === draft.tr && p.cats.length === draft.cats.size && p.cats.every(k => draft.cats.has(k));
+const presetMatch = p => p.size === draft.size && p.cats.length === draft.cats.size && p.cats.every(k => draft.cats.has(k));
 function renderSetup() {
   document.getElementById("s-presets").innerHTML = PRESETS.map((p, i) => `<button type="button" class="card preset" data-preset="${i}" aria-pressed="${presetMatch(p)}">
-    <span class="marks">${p.cats.map(k => `<span class="mk cat-${k}">${catInfo(k).mk}</span>`).join("")}<span class="tag">${SIZES[p.size].label}</span>${p.tr ? `<span class="tag tr">公共交通で</span>` : ""}</span>
+    <span class="marks">${p.cats.map(k => `<span class="mk cat-${k}">${catInfo(k).mk}</span>`).join("")}<span class="tag">${SIZES[p.size].label}</span></span>
     <b>${p.name}</b><small>${p.sub}</small></button>`).join("");
   setup.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
     const p = PRESETS[+b.dataset.preset];
-    draft.cats = new Set(p.cats); draft.size = p.size; draft.tr = p.tr; draft.named = true;
+    draft.cats = new Set(p.cats); draft.size = p.size; draft.named = true;
     document.getElementById("s-name").value = uniqueName(p.name);
     renderSetup();
   });
@@ -2171,10 +2162,9 @@ function renderSetup() {
   document.getElementById("s-sec-size").hidden = reco;
   document.getElementById("s-num-where").textContent = reco ? "2" : "3";
   const chosen = [TOP, ...CATS].filter(c => draft.cats.has(c.k));
-  document.getElementById("s-summary").innerHTML = `<span>選んでいる内容：</span>${chosen.map(c => `<span class="mk cat-${c.k}" title="${c.label}">${c.mk}</span>${c.label}`).join("・")}<span>× ${SIZES[draft.size].label}${draft.tr ? "・公共交通だけ" : ""}</span><button type="button" id="s-to-self">自分で変える</button>`;
+  document.getElementById("s-summary").innerHTML = `<span>選んでいる内容：</span>${chosen.map(c => `<span class="mk cat-${c.k}" title="${c.label}">${c.mk}</span>${c.label}`).join("・")}<span>× ${SIZES[draft.size].label}</span><button type="button" id="s-to-self">自分で変える</button>`;
   document.getElementById("s-to-self").onclick = () => { draft.mode = "self"; renderSetup(); document.getElementById("s-sec-cats").scrollIntoView({ block: "start", behavior: "smooth" }); };
   checkName();
-  document.getElementById("s-tr").checked = draft.tr;
   document.getElementById("s-cancel").hidden = !state.maps.length;
   setup.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { const k = b.dataset.cat; draft.cats.has(k) ? draft.cats.delete(k) : draft.cats.add(k); renderSetup(); });
   setup.querySelectorAll("[data-size]").forEach(b => b.onclick = () => { draft.size = b.dataset.size; renderSetup(); });
@@ -2259,12 +2249,11 @@ function openSetup() { draft.named = false; draft.picks = new Set(); setup.hidde
 function closeSetup() { setup.hidden = true; }
 document.getElementById("s-name").oninput = () => { draft.named = true; checkName(); };
 setup.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { draft.mode = b.dataset.mode; renderSetup(); });
-document.getElementById("s-tr").onchange = e => { draft.tr = e.target.checked; renderSetup(); };
 document.getElementById("s-cancel").onclick = closeSetup;
 document.getElementById("s-restore").onchange = e => readRestoreFile(e.target.files[0], document.querySelector(".setup-actions"));
 document.getElementById("s-ok").onclick = () => {
   if (!draft.cats.size || !checkName()) return;
-  const m = { id: "m" + Date.now().toString(36), name: document.getElementById("s-name").value.trim() || uniqueName(autoName()), cats: [TOP, ...CATS].filter(c => draft.cats.has(c.k)).map(c => c.k), size: draft.size, transitOnly: draft.tr, created: today(), visits: {}, marks: {} };
+  const m = { id: "m" + Date.now().toString(36), name: document.getElementById("s-name").value.trim() || uniqueName(autoName()), cats: [TOP, ...CATS].filter(c => draft.cats.has(c.k)).map(c => c.k), size: draft.size, created: today(), visits: {}, marks: {} };
   if (state.pending) { m.visits = state.pending.visits; m.marks = state.pending.marks; delete state.pending; } // 地図が無いときに残っていた前の記録
   state.maps.push(m); state.cur = m.id;
   for (const id of draft.picks) { // 選んだ行き先は「行きたい」に
