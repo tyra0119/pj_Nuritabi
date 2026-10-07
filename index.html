@@ -245,6 +245,9 @@ a { color: var(--accent); }
 .backdeps summary { cursor: pointer; font-size: 11px; font-weight: 700; color: var(--muted); padding: 2px 0; }
 .backdeps[open] summary { margin-bottom: 2px; }
 .routebtn { display: block; text-align: center; text-decoration: none; margin-top: 2px; }
+.bikeplan { border-left: 3px solid var(--c-play); padding: 2px 0 2px 8px; display: grid; gap: 3px; font-size: 12px; }
+.bikeplan ol { margin: 0; padding-left: 1.4em; display: grid; gap: 1px; }
+.bikeplan .cnt { font-weight: 400; color: var(--muted); font-size: 11px; }
 .walkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .walkrow .dir { font-size: 12px; color: var(--ink); margin-right: 2px; }
 .btn.sm { font-size: 11px; padding: 3px 8px; text-decoration: none; }
@@ -830,6 +833,33 @@ function loadCycleStatus(si) {
   return p;
 }
 const distM = (a, b) => Math.hypot((a.lat - b.lat) * 111320, (a.lon - b.lon) * 111320 * Math.cos(a.lat * Math.PI / 180));
+// シェアサイクルで行く案（利用者「駅 or バス停〜シェアサイクルの場所〜目的地の線もほしい」）。役に立つときだけ:
+// 駅・バス停から目的地まで歩くと遠い（800 m 以上）、駅・バス停の近く（300 m）に借りるポート、目的地の近く（500 m）に同じ会社の返すポートがあるとき
+const BIKE_FROM = 800, BIKE_PICK = 300;
+function bikePlan(st, s, d) {
+  if (st?.lat == null || s.lat == null || !d.cycles.length) return null;
+  if (distM(st, s) < BIKE_FROM) return null;
+  let best = null;
+  const picks = d.cycles.map(c => ({ c, w: distM(st, c) })).filter(x => x.w <= BIKE_PICK);
+  const drops = d.cycles.map(c => ({ c, w: distM(c, s) })).filter(x => x.w <= CYCLE_WALK);
+  for (const a of picks) for (const b of drops) {
+    if (a.c.sys !== b.c.sys || a.c === b.c) continue; // 返せるのは同じ会社（同じ仕組み）のポートだけ
+    const ride = distM(a.c, b.c); if (ride < 400) continue;
+    const cost = a.w + b.w + ride / 4; // 歩く距離を重く見る
+    if (!best || cost < best.cost) best = { a: a.c, b: b.c, wa: Math.round(a.w), wb: Math.round(b.w), ride: Math.round(ride * 1.25), cost }; // 道は直線より 25% ほど長い
+  }
+  return best;
+}
+function bikeHtml(st, name, p) {
+  const sys = CYCLE_SYS[p.a.sys], km = (p.ride / 1000).toFixed(1), min = Math.max(1, Math.round(p.ride / 1000 / 15 * 60)), wmin = m => Math.max(1, Math.round(m / 80));
+  return `<div class="bikeplan"><b>シェアサイクルで</b>（${esc(sys.label)}）
+    <ol><li>${esc(name)}から歩いて${wmin(p.wa)}分</li>
+      <li data-cport="${p.a.sys}|${esc(p.a.sid)}">「${esc(p.a.name)}」で借りる <b class="cnt"></b></li>
+      <li>自転車で約${km}km（約${min}分）</li>
+      <li data-cport="${p.b.sys}|${esc(p.b.sid)}">「${esc(p.b.name)}」で返す <b class="cnt"></b></li>
+      <li>歩いて${wmin(p.wb)}分で到着</li></ol>
+    <div class="walkrow"><button type="button" class="btn sm" data-bike="${esc(st.id)}">地図で見る</button><button type="button" class="btn sm" data-cyc="1">今の台数を見る</button></div></div>`;
+}
 function nearCycles(s, d, n = 2) { return d.cycles.map(c => ({ c, dist: Math.round(distM(s, c)) })).filter(x => x.dist <= CYCLE_WALK).sort((a, b) => a.dist - b.dist).slice(0, n); }
 function cycleHtml(list) {
   if (!list.length) return "";
@@ -854,6 +884,17 @@ function showWalk(st, s, label) {
   if (sheetState === "full") setSheet("half");
   const bar = document.getElementById("catbar"), left = bar.hidden ? 40 : bar.offsetWidth + 40;
   mapgl.fitBounds([[Math.min(st.lon, s.lon), Math.min(st.lat, s.lat)], [Math.max(st.lon, s.lon), Math.max(st.lat, s.lat)]], { padding: { top: 80, bottom: 50, left, right: 50 }, maxZoom: 17, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 600 });
+}
+function showBike(st, s, p, name) {
+  if (!mapReady) return;
+  walkFor = s.id;
+  const strip = t => t.replace(/[①-⓿❶-➓㈀-㋿]/g, "").trim() || t;
+  const L = (a, b, kind) => ({ type: "Feature", geometry: { type: "LineString", coordinates: [[a.lon, a.lat], [b.lon, b.lat]] }, properties: { kind } });
+  const P = (a, label, pt) => ({ type: "Feature", geometry: { type: "Point", coordinates: [a.lon, a.lat] }, properties: { label, pt } });
+  setData("nt-walk", fc([L(st, p.a, "walk"), L(p.a, p.b, "bike"), L(p.b, s, "walk"), P(st, strip(name), "stop"), P(p.a, `借りる ${strip(p.a.name)}`, "port"), P(p.b, `返す ${strip(p.b.name)}`, "port")]));
+  if (sheetState === "full") setSheet("half");
+  const pts = [st, p.a, p.b, s], bar = document.getElementById("catbar"), left = bar.hidden ? 40 : bar.offsetWidth + 40;
+  mapgl.fitBounds([[Math.min(...pts.map(x => x.lon)), Math.min(...pts.map(x => x.lat))], [Math.max(...pts.map(x => x.lon)), Math.max(...pts.map(x => x.lat))]], { padding: { top: 80, bottom: 50, left, right: 60 }, maxZoom: 17, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 600 });
 }
 function clearWalk() { if (walkFor && mapReady) { walkFor = null; setData("nt-walk", EMPTY); } }
 function bindCycles(el) {
@@ -885,6 +926,7 @@ async function fillHowto(el, s, d) {
   const routeBtn = s.lat != null ? `<a class="btn routebtn" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}&travelmode=transit" target="_blank" rel="noopener">今いる場所からの経路を調べる（Google マップ）</a>` : "";
   if (!stops.length && !cyc.length) { el.innerHTML = `<h3>ここへの行き方</h3><p class="note">近く（駅 2km・バス停 1km・シェアサイクル 500m 以内）に、データのある駅・バス停・ポートがありません。</p>${routeBtn}`; return; }
   let info = null; try { info = await trainInfo(); } catch (e) {}
+  const bikes = new Map(); // 駅・バス停の ID → シェアサイクルの案
   const parts = await Promise.all(stops.map(async x => {
     const st = x.stop, name = st?.name || x.name, walk = x.dist ? `歩いて約${Math.max(1, Math.round(x.dist / 80))}分（${x.dist}m）` : "";
     let deps = null, err = false;
@@ -910,12 +952,17 @@ async function fillHowto(el, s, d) {
     const dm = geo ? (x.dist || Math.round(Math.hypot((s.lat - st.lat) * 111320, (s.lon - st.lon) * 111320 * Math.cos(s.lat * Math.PI / 180)))) : 0;
     const dir = geo ? `${esc(name)}から<b>${bearingJa([st.lat, st.lon], [s.lat, s.lon])}</b>へ約${dm >= 1000 ? (dm / 1000).toFixed(1) + "km" : dm + "m"}` : "";
     const walkBtns = geo ? `<div class="walkrow"><span class="dir">${dir}</span><button type="button" class="btn sm" data-walk="${esc(st.id)}" data-walk-name="${esc(name)}">地図で見る</button><a class="btn sm" href="https://www.google.com/maps/dir/?api=1&origin=${st.lat},${st.lon}&destination=${s.lat},${s.lon}&travelmode=walking" target="_blank" rel="noopener">歩くルート（Google マップ）</a></div>` : "";
-    return `<div class="stop"><div class="sn"><span class="sk">${isRail ? "電車" : "バス"}</span><span><b>${esc(name)}</b>で降りて、${walk || "すぐ"}</span></div>${viaTxt}${walkBtns}
+    const bp = geo ? bikePlan(st, s, d) : null; if (bp) bikes.set(st.id, bp);
+    return `<div class="stop"><div class="sn"><span class="sk">${isRail ? "電車" : "バス"}</span><span><b>${esc(name)}</b>で降りて、${walk || "すぐ"}</span></div>${viaTxt}${walkBtns}${bp ? bikeHtml(st, name, bp) : ""}
       ${warn.map(w => `<div class="tinfo"><b>${esc(w.l)}</b>${esc(w.i.text)}</div>`).join("")}${back}</div>`;
   }));
   // 今いる場所からの乗り換えは、経路検索に任せる（行き先の座標だけを渡す）
   el.innerHTML = `<h3>ここへの行き方</h3><p class="note howto-lead">近くの駅・バス停で降りて歩きます。乗り換えは「経路を調べる」で。</p>${parts.join("")}${cycleHtml(cyc)}${routeBtn}<small class="note">運行情報・シェアサイクル：公共交通オープンデータセンター。時刻は目安です。台数は予約ではありません。</small>`;
   bindCycles(el);
+  el.querySelectorAll("[data-bike]").forEach(b => b.onclick = () => {
+    const x = stops.find(x => x.stop?.id === b.dataset.bike), p = bikes.get(b.dataset.bike); if (!x || !p) return;
+    showBike(x.stop, s, p, x.stop.name || x.name);
+  });
   el.querySelectorAll("[data-walk]").forEach(b => b.onclick = () => {
     const st = stops.find(x => x.stop?.id === b.dataset.walk)?.stop; if (!st) return;
     showWalk(st, s, b.dataset.walkName);
@@ -1179,9 +1226,10 @@ function addOverlay() {
   add({ id: "nt-pins", type: "circle", source: "nt-pins", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 4.5, 9, 7, 13, 10], "circle-color": ["get", "col"], "circle-stroke-color": C("--panel"), "circle-stroke-width": ["case", ["get", "sel"], 3, 1.5] } });
   // 選んだ場所（検索・一覧・印から）。おすすめでなくても、地図の対象でなくても必ず出す
   // 駅・バス停から選んだ場所まで歩く道すじ（まっすぐの点線）と、降りる駅・バス停
-  add({ id: "nt-walk-line", type: "line", source: "nt-walk", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round" }, paint: { "line-color": C("--ink"), "line-width": 3, "line-dasharray": [1.5, 1.5] } });
-  add({ id: "nt-walk-stop", type: "circle", source: "nt-walk", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": 8, "circle-color": C("--panel"), "circle-stroke-color": C("--ink"), "circle-stroke-width": 3 } });
-  add({ id: "nt-walk-text", type: "symbol", source: "nt-walk", filter: ["==", ["geometry-type"], "Point"], layout: { "text-field": ["get", "label"], "text-font": textFont, "text-size": 12, "text-offset": [0, 1.4], "text-anchor": "top", "text-allow-overlap": true }, paint: { "text-color": C("--ink"), "text-halo-color": C("--panel"), "text-halo-width": 2 } });
+  add({ id: "nt-bike-line", type: "line", source: "nt-walk", filter: ["all", ["==", ["geometry-type"], "LineString"], ["==", ["get", "kind"], "bike"]], layout: { "line-cap": "round" }, paint: { "line-color": C("--c-play"), "line-width": 4, "line-opacity": 0.9 } });
+  add({ id: "nt-walk-line", type: "line", source: "nt-walk", filter: ["all", ["==", ["geometry-type"], "LineString"], ["!=", ["get", "kind"], "bike"]], layout: { "line-cap": "round" }, paint: { "line-color": C("--ink"), "line-width": 3, "line-dasharray": [1.5, 1.5] } });
+  add({ id: "nt-walk-stop", type: "circle", source: "nt-walk", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": ["match", ["get", "pt"], "port", 6, 8], "circle-color": C("--panel"), "circle-stroke-color": ["match", ["get", "pt"], "port", C("--c-play"), C("--ink")], "circle-stroke-width": 3 } });
+  add({ id: "nt-walk-text", type: "symbol", source: "nt-walk", filter: ["==", ["geometry-type"], "Point"], layout: { "text-field": ["get", "label"], "text-font": textFont, "text-size": 12, "text-variable-anchor": ["top", "bottom", "right", "left"], "text-radial-offset": 1.1, "text-justify": "auto", "symbol-sort-key": ["match", ["get", "pt"], "port", 2, 1] }, paint: { "text-color": C("--ink"), "text-halo-color": C("--panel"), "text-halo-width": 2 } }); // 名前が重なるときは上下左右にずらす
   add({ id: "nt-sel-halo", type: "circle", source: "nt-sel", paint: { "circle-radius": 22, "circle-color": C("--c-top"), "circle-opacity": 0.25, "circle-stroke-color": C("--c-top"), "circle-stroke-width": 1.5 } });
   add({ id: "nt-sel", type: "circle", source: "nt-sel", paint: { "circle-radius": 12, "circle-color": ["get", "fill"], "circle-stroke-color": C("--ink"), "circle-stroke-width": 3 } });
   add({ id: "nt-sel-text", type: "symbol", source: "nt-sel", layout: { "text-field": ["get", "mk"], "text-font": textFont, "text-size": 13, "text-allow-overlap": true, "text-ignore-placement": true }, paint: { "text-color": ["get", "tcol"] } });
