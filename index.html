@@ -525,6 +525,7 @@ async function boot() {
   }
   document.getElementById("loading").hidden = true;
   if (!state.maps.length) openSetup(); else render();
+  try { history.replaceState(navState(null, null), ""); } catch (e) {}
 }
 function decodeLine(str, prec = 1e4) { let i = 0, lat = 0, lon = 0; const o = []; while (i < str.length) { for (const k of [0, 1]) { let r = 0, sh = 0, b; do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); const d = (r & 1) ? ~(r >> 1) : (r >> 1); if (k) lon += d; else lat += d; } o.push([lon / prec, lat / prec]); } return o; }
 let RAIL = null, railLoading = null;
@@ -1462,7 +1463,36 @@ function renderPanel() { ui.view === "list" ? renderListPanel() : ui.view === "o
 function render(keepZoom) { if (!IDX || !curMap()) return; renderHeader(); drawMap(keepZoom); renderPanel(); }
 
 /* ================= 操作 ================= */
-function openPref(id) { ui.view = "detail"; ui.pref = id; ui.cell = null; ui.spot = null; ui.hl = null; ui.q = ""; ui.line = null; render(); }
+/* ================= 画面の行き来（戻る） ================= */
+// 画面を移るたびに履歴を積む。スマホ・ブラウザの「戻る」や、地図の左上の「←」で一つ前の画面（全国・マイリスト・県）へ戻る
+let navIdx = 0;
+const panelScrolls = () => panel.scrollHeight > panel.clientHeight + 1 && getComputedStyle(panel).overflowY !== "visible";
+const scrollPos = () => panelScrolls() ? panel.scrollTop : window.scrollY;
+const navState = (from, fromPref) => ({ nt: 1, i: navIdx, view: ui.view, pref: ui.pref, spot: ui.spot, list: { ...ui.list }, scroll: scrollPos(), from: from === undefined ? history.state?.from ?? null : from, fromPref: fromPref === undefined ? history.state?.fromPref ?? null : fromPref });
+function saveNav() { try { history.replaceState(navState(), ""); } catch (e) {} }
+function pushNav(fromView, fromPref = null) { navIdx++; try { history.pushState(navState(fromView, fromPref), ""); } catch (e) {} updateBack(); }
+function updateBack() { // 戻り先の名前を出す
+  const b = document.getElementById("back"), from = history.state?.from;
+  b.textContent = from === "list" ? "← マイリスト" : from === "detail" && history.state?.fromPref && PREF[history.state.fromPref] ? `← ${PREF[history.state.fromPref].name}` : "← 全国";
+}
+function goBack() {
+  if (navIdx > 0 && history.state?.nt) { history.back(); return; }
+  ui.view = "over"; ui.pref = null; ui.cell = null; ui.spot = null; render(); saveNav(); updateBack();
+}
+addEventListener("popstate", e => {
+  const st = e.state; if (!st?.nt || !IDX) return;
+  navIdx = st.i || 0;
+  ui.view = st.view; ui.pref = st.pref; ui.spot = st.spot; ui.cell = null; ui.hl = null; ui.line = null; ui.q = "";
+  if (st.list) ui.list = { ...st.list };
+  render();
+  const y = st.scroll || 0; setTimeout(() => { if (panelScrolls()) panel.scrollTop = y; else window.scrollTo(0, y); }, 0);
+  updateBack();
+});
+function openPref(id) {
+  const from = ui.view, fromPref = ui.pref; saveNav();
+  ui.view = "detail"; ui.pref = id; ui.cell = null; ui.spot = null; ui.hl = null; ui.q = ""; ui.line = null; render();
+  pushNav(from, fromPref);
+}
 function flashRow(id) {
   const row = [...panel.querySelectorAll(".row")].find(r => r.dataset.id === id);
   if (row) { row.scrollIntoView({ block: "nearest", behavior: "smooth" }); row.classList.add("flash"); }
@@ -1554,10 +1584,12 @@ const norm = t => t.normalize("NFKC").toLowerCase().replace(/[\s・･]+/g, "").
 async function goToSpot(pid, id) {
   let d; try { d = await loadPref(pid); } catch (e) { toast("この県のデータを読み込めませんでした"); return; }
   const s = d.byId.get(id); if (!s) return;
-  const map = curMap();
+  const map = curMap(), from = ui.view, fromPref = ui.pref;
+  saveNav();
   ui.view = "detail"; ui.pref = pid; ui.q = ""; ui.reach = false; ui.spot = id; ui.line = null;
   ui.cell = map.size !== "pref" && inMap(map, s) ? cellOf(map.size, { p: pid, m3: s.m3, mu: s.mu }) : null;
   render();
+  pushNav(from, fromPref);
   if (mapReady) mapgl.flyTo({ center: [s.lon, s.lat], zoom: map.size === "m3" ? 14 : 12, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700 });
   if (!inMap(map, s)) toast(`「${CATS[s.c].label}」はこの地図の対象外です。記録すると、${CATS[s.c].label}を含む地図で塗られます`);
 }
@@ -1811,14 +1843,14 @@ document.getElementById("s-ok").onclick = () => {
   toast(`「${esc(m.name)}」をはじめました${draft.picks.size ? `。行きたい場所 ${draft.picks.size}か所` : ""}`, true);
 };
 document.getElementById("newmap").onclick = openSetup;
-document.getElementById("mylist").onclick = () => { ui.view = ui.view === "list" ? "over" : "list"; ui.pref = null; ui.cell = null; ui.spot = null; render(); };
+document.getElementById("mylist").onclick = () => { const from = ui.view; saveNav(); ui.view = ui.view === "list" ? "over" : "list"; ui.pref = null; ui.cell = null; ui.spot = null; render(); pushNav(from); };
 document.getElementById("ly-rail").onchange = e => { state.layers.rail = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-bus").onchange = e => { state.layers.bus = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-mine").onchange = e => { state.layers.mine = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-muni").onchange = e => { state.layers.muni = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-b3d").onchange = e => { state.layers.b3d = e.target.checked; save(); drawMap(true); if (mapReady) mapgl.easeTo({ pitch: state.layers.b3d ? 50 : 0, duration: 800 }); };
 document.getElementById("mapsel").onchange = e => { state.cur = e.target.value; save(); render(); };
-document.getElementById("back").onclick = () => { ui.view = "over"; ui.pref = null; ui.cell = null; ui.spot = null; render(); };
+document.getElementById("back").onclick = goBack;
 
 boot();
 </script>
