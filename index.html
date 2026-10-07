@@ -85,7 +85,7 @@ a { color: var(--accent); }
 /* ---- main ---- */
 .main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
 .mapwrap { position: relative; min-height: 0; background: var(--sea); overflow: hidden; }
-#map { display: block; width: 100%; height: 100%; touch-action: none; transform-origin: 0 0; will-change: transform; } /* 層は作りっぱなしにする（作り直すとスマホでちらつく） */
+#map { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; touch-action: none; transform-origin: 0 0; will-change: transform; } /* 層は作りっぱなしにする（作り直すとスマホでちらつく） */
 .panel { min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 22px; }
 .backbtn { position: absolute; top: 12px; left: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 700; }
 .legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11px; color: var(--muted); max-width: calc(100% - 24px); }
@@ -894,7 +894,7 @@ function rescaleMarks() {
 }
 // 拡大・移動: 動かしている間は SVG を 1 枚の絵として CSS の transform で動かすだけにし（描き直さない）、
 // 止まったら中身（gz）に変換をかけて、くっきり描き直す
-let gzT = d3.zoomIdentity, commitTimer = 0; // いま gz にかかっている変換
+let gzT = d3.zoomIdentity, commitTimer = 0, MX = 0, MY = 0; // いま gz にかかっている変換
 function commitZoom() { // 止まったら中身に変換をかけて描き直す
   commitTimer = 0;
   const t = d3.zoomTransform(svg.node());
@@ -902,7 +902,7 @@ function commitZoom() { // 止まったら中身に変換をかけて描き直�
   svg.node().style.transform = "";
   lastK = -1; rescaleMarks(); placeMuniLabels();
 }
-const zoom = d3.zoom().scaleExtent([1, 40])
+const zoom = d3.zoom().scaleExtent([1, 40]).extent(() => [[0, 0], [W, H]]) // 余白を除いた見えている範囲
   .on("start", () => { clearTimeout(commitTimer); commitTimer = 0; })
   .on("zoom", e => { const t = e.transform, k = t.k / gzT.k; svg.node().style.transform = `translate(${t.x - gzT.x * k}px,${t.y - gzT.y * k}px) scale(${k})`; })
   .on("end", e => {
@@ -936,7 +936,11 @@ function drawMap(keepZoom) {
   if (!IDX) return;
   const t = d3.zoomTransform(svg.node());
   W = wrap.clientWidth; H = wrap.clientHeight;
-  svg.attr("viewBox", `0 0 ${W} ${H}`);
+  // 画面より上下左右に 4 割ずつ大きく描いておく（指で動かしている間に端が空いて、ちらついて見えないように）
+  MX = Math.round(W * 0.4); MY = Math.round(H * 0.4);
+  svg.attr("viewBox", `${-MX} ${-MY} ${W + 2 * MX} ${H + 2 * MY}`)
+    .style("left", -MX + "px").style("top", -MY + "px").style("width", W + 2 * MX + "px").style("height", H + 2 * MY + "px")
+    .style("transform-origin", `${MX}px ${MY}px`);
   gz.selectAll("*").remove(); markerSel = null; pickSel = null; pinSel = null; muniSel = null; lastK = -1; hideTip();
   if (ui.view === "detail") drawDetail(); else drawOverview();
   drawLegend();
