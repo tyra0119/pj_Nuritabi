@@ -269,6 +269,10 @@ a { color: var(--accent); }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 3px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
 .chip .mk { width: 18px; height: 18px; font-size: 10px; }
 .catedit { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg2 { display: flex; gap: 0; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; width: fit-content; max-width: 100%; }
+.seg2 button { border: 0; background: var(--panel); color: var(--ink); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.seg2 button + button { border-left: 1px solid var(--line); }
+.seg2 button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
 .chip.ce { cursor: pointer; padding: 4px 10px 4px 6px; font-size: 13px; }
 .chip.ce input { margin: 0; }
 .chip.ce small { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -579,6 +583,7 @@ let markVer = 0;
 if (!state.layers) state.layers = { rail: true, bus: true };
 if (state.layers.mine === undefined) state.layers.mine = true;
 if (state.layers.spots === undefined) state.layers.spots = true;
+if (state.layers.allSpots === undefined) state.layers.allSpots = true; // 県の画面で、この地図の対象外の場所も出す（利用者「★のついてない場所はどうやって選択すればいいの？」）
 if (state.layers.muni === undefined) state.layers.muni = true;
 if (state.layers.b3d === undefined) state.layers.b3d = false;
 function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
@@ -1062,7 +1067,7 @@ function addOverlay() {
   add({ id: "nt-muni-label", type: "symbol", source: "nt-munilabel", layout: { "text-field": ["get", "name"], "text-font": textFont, "text-size": 11, "symbol-sort-key": ["get", "rank"] }, paint: { "text-color": C("--ink"), "text-halo-color": C("--land"), "text-halo-width": 2, "text-opacity": 0.85 } });
   // 場所の印（おすすめ・場所）。小さく描いて、拡大すると字（湯・駅など）を出す
   // おすすめ以外の場所（県の画面・マスの地図）: 小さな点。駅・バス停は多いので、十分に拡大したときだけ（tr: 0 場所、1 駅、2 バス停）
-  const spotPaint = { "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 1.8, 11, 3.5, 14, 6.5], "circle-color": ["get", "fill"], "circle-stroke-color": ["get", "stroke"], "circle-stroke-width": 1.5, "circle-opacity": 0.95 };
+  const spotPaint = { "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 1.8, 11, 3.5, 14, 6.5], "circle-color": ["get", "fill"], "circle-stroke-color": ["get", "stroke"], "circle-stroke-width": 1.5, "circle-opacity": ["case", ["==", ["get", "out"], 1], 0.5, 0.95], "circle-stroke-opacity": ["case", ["==", ["get", "out"], 1], 0.5, 1] };
   const spotText = { layout: { "text-field": ["get", "mk"], "text-font": textFont, "text-size": 9, "text-allow-overlap": true, "text-ignore-placement": true }, paint: { "text-color": ["get", "tcol"] } };
   add({ id: "nt-spots", type: "circle", source: "nt-spots", minzoom: 8, filter: ["==", ["get", "tr"], 0], paint: spotPaint });
   add({ id: "nt-spots-st", type: "circle", source: "nt-spots", minzoom: SPOT_ST_Z, filter: ["==", ["get", "tr"], 1], paint: spotPaint });
@@ -1138,7 +1143,7 @@ function drawMap(keepZoom) {
   vis("nt-b3d", detail && state.layers.b3d && basemapOk);
   // 場所の印・おすすめ（県の画面）
   setData("nt-marks", EMPTY); setData("nt-spots", EMPTY);
-  for (const id of SPOT_LAYERS) vis(id, detail && state.layers.spots && map.size !== "pref");
+  for (const id of SPOT_LAYERS) vis(id, detail && state.layers.spots);
   setData("nt-sel", EMPTY);
   if (detail) { const pid = ui.pref; loadPref(pid).then(d => { if (ui.view === "detail" && ui.pref === pid) { drawMarks(map, d); drawPins(); drawSel(); } }).catch(() => toast("この県のデータを読み込めませんでした")); }
   drawPins();
@@ -1187,12 +1192,15 @@ function drawMarks(map, d) {
 // 駅・バス停は多いので、十分に拡大したときだけ（利用者「多いし」「十分に拡大したときだけならOK」）
 const SPOT_ST_Z = 13, SPOT_BUS_Z = 15, SPOT_LAYERS = ["nt-spots", "nt-spots-st", "nt-spots-bus", "nt-spots-text", "nt-spots-tr-text"];
 function drawSpots(map, d) {
-  if (map.size === "pref" || !state.layers.spots) return setData("nt-spots", EMPTY);
-  const C = n => cssVar(n), pk = new Set([...picks(map, d).values()].filter(Boolean).map(s => s.id)), feats = [];
+  if (!state.layers.spots) return setData("nt-spots", EMPTY);
+  const C = n => cssVar(n), pk = new Set(map.size === "pref" ? [] : [...picks(map, d).values()].filter(Boolean).map(s => s.id)), feats = [];
   for (const s of d.spots) {
-    if (!inMap(map, s) || pk.has(s.id) || s.lat == null) continue;
+    const tgt = inMap(map, s);
+    if (pk.has(s.id) || s.lat == null) continue;
+    if (tgt && map.size === "pref") continue; // 県単位の地図は、対象の場所を印（nt-marks）で出している
+    if (!tgt && (!state.layers.allSpots || s.c === CAT_IDX.bus)) continue; // 対象外のバス停は多すぎるので出さない
     const v = !!state.visits[s.id], col = C(`--c-${CATS[s.c].k}`);
-    feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, kind: "spot", mk: CATS[s.c].mk, fill: v ? col : C("--panel"), stroke: v ? C("--panel") : col, tcol: v ? C("--marker-ink") : col, tr: s.c === CAT_IDX.station ? 1 : s.c === CAT_IDX.bus ? 2 : 0 } });
+    feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, kind: "spot", mk: CATS[s.c].mk, fill: v ? col : C("--panel"), stroke: v ? C("--panel") : col, tcol: v ? C("--marker-ink") : col, tr: s.c === CAT_IDX.station ? 1 : s.c === CAT_IDX.bus ? 2 : 0, out: tgt ? 0 : 1 } });
   }
   setData("nt-spots", fc(feats));
 }
@@ -1237,7 +1245,7 @@ function bindMapEvents() {
     if (!f || MOBILE) return hideTip();
     if (f.layer.id === "nt-sel") { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>選んだ場所・${CATS[s.c].label}`); }
     else if (f.layer.id === "nt-pins") { const r = state.visits[p.id] || state.marks[p.id]; if (r) showTip(ev, `<b>${r.top ? "★" : ""}${esc(r.n)}</b>${PIN[p.k].label}${p.k[0] === "v" ? "・" + r.d.replace(/-/g, "/") : ""}・${PREF[r.p]?.name}`); }
-    else if (f.layer.id === "nt-marks" || f.layer.id.startsWith("nt-spots")) { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>${p.kind === "pick" ? "このマスのおすすめ・" + esc(whyText(s)) : CATS[s.c].label + (state.visits[s.id] ? "・行った" : "")}`); }
+    else if (f.layer.id === "nt-marks" || f.layer.id.startsWith("nt-spots")) { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>${p.kind === "pick" ? "このマスのおすすめ・" + esc(whyText(s)) : CATS[s.c].label + (p.out ? "・この地図の対象外" : "") + (state.visits[s.id] ? "・行った" : "")}`); }
     else if (f.layer.id === "nt-cells" && ui.view === "detail") showTip(ev, p.st === -1 ? `<b>${esc(cellName(p.c))}</b>この地図の対象の場所がありません` : `<b>${esc(cellName(p.c))}</b>${p.st ? (p.st === 2 ? "公共交通で塗った" : "車などで塗った") : "まだ塗れる"}・押すと中の場所が出ます`);
     else if (f.layer.id === "nt-pref-fill") {
       if (ui.view === "detail") { if (p.id !== ui.pref) showTip(ev, `<b>${p.name}</b>押すと移動`); else hideTip(); }
@@ -1255,7 +1263,7 @@ function bindMapEvents() {
     if (f.layer.id === "nt-marks" || f.layer.id.startsWith("nt-spots")) {
       const d = prefData.get(ui.pref), s = d?.byId.get(p.id); if (!s) return;
       // 地図の印・点を押したら、一覧で名前を押したときと同じく「選んだ場所」のカードを出す（スマホはシートを半分まで上げる）
-      ui.cell = map.size === "pref" ? null : cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu });
+      ui.cell = map.size === "pref" || !inMap(map, s) ? null : cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu });
       setOnCell(ui.cell); selectSpot(s.id); drawPins(); return;
     }
     if (f.layer.id === "nt-cells" && ui.view === "detail" && p.st === -1) { toast(`${esc(cellName(p.c))}には、この地図の対象の場所がありません。塗るものの種類はメニューで足せます`); return; }
@@ -1411,6 +1419,7 @@ function renderMenuPanel() {
       博物館・美術館・水族館・動植物園・スキー場・海水浴場・キャンプ場：「国土数値情報（文化施設データ）」（国土交通省、2013年度）を加工して作成。大きな公園：「国土数値情報（都市公園データ）」（国土交通省、2010年）を加工して作成。<br>
       史跡・名勝・天然記念物・国宝と重要文化財の建造物・重要伝統的建造物群保存地区：出典「国指定文化財等データベース」（文化庁）。名前と位置を使い、同じ境内の建物は 1 か所にまとめています。<br>
       市区町村：「国土数値情報（行政区域データ）」（国土交通省、2025年、CC BY 4.0）を加工して作成。<br>
+      鉄道の線路と駅：「国土数値情報（鉄道データ）」（国土交通省、2024年、CC BY 4.0）を加工して作成。路線の色は公共交通オープンデータセンターの路線情報から。<br>
       駅・バス停・運行情報：出典：公共交通オープンデータセンター。シェアサイクル（ドコモ・バイクシェア、HELLO CYCLING）のポートと台数も公共交通オープンデータセンターから。次の便は、各事業者が公開している GTFS の時刻表から求めた目安です。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
       <details id="srcdet"><summary>交通データの提供元をすべて見る</summary><ol class="srclist" id="srclist"><li>読み込み中…</li></ol></details>
     </div>`;
@@ -1526,6 +1535,9 @@ async function renderDetailPanel() {
   if (!d) { try { d = await loadPref(pid); } catch (e) { document.getElementById("spotsec").innerHTML = `<p class="note">この県のデータを読み込めませんでした。時間をおいて開き直してください。</p>`; return; } }
   if (ui.view !== "detail" || ui.pref !== pid) return;
   const all = d.spots.filter(s => inMap(map, s)).sort((a, b) => b.top - a.top);
+  // 「すべての場所」: この地図の対象外も（対象を先に。バス停は多いので名前で探したときだけ）
+  const every = d.spots.filter(s => inMap(map, s) || s.c !== CAT_IDX.bus).sort((a, b) => (inMap(map, b) - inMap(map, a)) || (b.top - a.top));
+  const base = state.layers.allSpots ? every : all;
   const q = ui.q.trim();
   const LR = lineReach(map, d), selLine = ui.line && LR.find(x => x.l === ui.line);
   const P1 = map.size !== "pref" ? picks(map, d) : null;
@@ -1542,6 +1554,11 @@ async function renderDetailPanel() {
       <input type="search" id="q" placeholder="名前で探す" value="${esc(ui.q)}" aria-label="名前で探す">
       <label class="check" for="reach"><input type="checkbox" id="reach" ${ui.reach ? "checked" : ""}>駅（${WALK_RAIL / 1000}km）・バス停（${WALK_BUS}m）から歩ける所だけ</label>
     </div>
+    <div class="seg2" role="group" aria-label="一覧と地図に出す場所">
+      <button type="button" data-allsp="0" aria-pressed="${!state.layers.allSpots}">この地図の対象 ${all.length.toLocaleString()}</button>
+      <button type="button" data-allsp="1" aria-pressed="${!!state.layers.allSpots}">すべての場所 ${every.length.toLocaleString()}</button>
+    </div>
+    ${state.layers.allSpots && every.length > all.length ? `<p class="note" style="margin-top:4px">対象外の場所（地図では薄い点）も、行きたい・行ったを記録できます。塗るには、メニューの「この地図で塗るもの」で種類を足してください。</p>` : ""}
     ${ui.cell ? `<div class="filterbar" style="margin-top:8px"><span>${esc(cellName(ui.cell))} の場所</span><button type="button" id="cell-clear">すべて表示</button></div>` : ""}
     ${selSpot ? `<div class="reco selcard" style="margin-top:8px"><div class="lblrow"><span class="lbl">選んだ場所</span><button type="button" class="x" id="sel-close">閉じる</button></div><ul class="list">${rowHtml(selSpot, { open: true })}</ul>${howtoHtml(selSpot)}</div>` : ""}
     ${cellPick && cellPick !== selSpot ? `<div class="reco" style="margin-top:8px"><span class="lbl">このマスのおすすめ</span><ul class="list">${rowHtml(cellPick)}</ul><small class="note">${esc(whyText(cellPick))}</small>${howtoHtml(cellPick)}</div>`
@@ -1555,15 +1572,16 @@ async function renderDetailPanel() {
     <h2 style="margin-top:14px">${ui.cell ? "このマスの場所" : "場所の一覧"}</h2>
     <p class="note" style="margin-bottom:6px">名前を押すと詳しく（行き方・次の便）。♡は行きたい、✓は行った（電車・バス・シェアサイクルならマスが<b style="color:var(--fill-tr)">緑</b>、車などなら<b style="color:var(--fill)">青</b>）。</p>
     <div id="spotlist"></div>`;
-  renderSpotList(d, map, all, selLine);
+  renderSpotList(d, map, base, selLine);
+  sec.querySelectorAll("[data-allsp]").forEach(b => b.onclick = () => { state.layers.allSpots = b.dataset.allsp === "1"; save(); rerenderKeep(); });
   // 名前で探す: 一覧だけ描き直す。日本語の変換中は探さず、確定してから探す
   const qi = document.getElementById("q");
   let composing = false;
-  const run = () => { ui.q = qi.value; renderSpotList(d, map, all, selLine); };
+  const run = () => { ui.q = qi.value; renderSpotList(d, map, base, selLine); };
   qi.addEventListener("compositionstart", () => { composing = true; });
   qi.addEventListener("compositionend", () => { composing = false; run(); });
   qi.oninput = () => { if (composing) return; clearTimeout(qi._t); qi._t = setTimeout(run, 120); };
-  document.getElementById("reach").onchange = e => { ui.reach = e.target.checked; renderSpotList(d, map, all, selLine); };
+  document.getElementById("reach").onchange = e => { ui.reach = e.target.checked; renderSpotList(d, map, base, selLine); };
   const cc = document.getElementById("cell-clear"); if (cc) cc.onclick = () => { ui.cell = null; ui.spot = null; renderPanel(); setOnCell(null); };
   const sc = document.getElementById("sel-close"); if (sc) sc.onclick = () => { ui.spot = null; ui.open = null; renderPanel(); };
   bindRowActions(sec);
@@ -1614,7 +1632,7 @@ function renderHeader() {
   document.getElementById("ly-bus").checked = state.layers.bus;
   document.getElementById("ly-mine").checked = state.layers.mine;
   document.getElementById("ly-spots").checked = state.layers.spots;
-  document.getElementById("ly-spots-l").hidden = ui.view !== "detail" || map.size === "pref";
+  document.getElementById("ly-spots-l").hidden = ui.view !== "detail";
   document.getElementById("ly-muni").checked = state.layers.muni;
   const seg = document.getElementById("sizeseg");
   seg.innerHTML = sizeButtons(map);
@@ -1726,7 +1744,8 @@ function visit(id, byTransit) {
   save();
   const after = totals(), F1 = filled(map)[s.pref], msgs = [];
   if (!before.pset.has(s.pref)) msgs.push(`<b>初上陸</b>${PREF[s.pref].name}に足あと`);
-  if (map.transitOnly && !byTransit) msgs.push(`<b>記録</b>この地図は公共交通で行った場所だけ塗ります`);
+  if (!inMap(map, s)) msgs.push(`<b>記録</b>${esc(s.name)}（${CATS[s.c].label}はこの地図の対象外なので塗りません。メニューの「この地図で塗るもの」で足せます）`);
+  else if (map.transitOnly && !byTransit) msgs.push(`<b>記録</b>この地図は公共交通で行った場所だけ塗ります`);
   else if (!wasFilled) msgs.push(`<b>塗った</b>${cell ? esc(cellName(cell)) : PREF[s.pref].name}${byTransit ? "（公共交通）" : ""}`);
   else if (byTransit && !wasTr) msgs.push(`<b>塗り替え</b>公共交通の色になりました`);
   const t = targets(map, s.pref).size;
