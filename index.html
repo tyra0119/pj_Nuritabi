@@ -923,7 +923,7 @@ function onStyleLoad() {
 // 重ねる層（下から）: 県の色・格子・マス・市区町村・バス・鉄道 →（背景の地名）→ 3D の建物・選んだマス・名前・印
 function addOverlay() {
   const C = n => cssVar(n);
-  for (const id of ["nt-prefs", "nt-cells", "nt-grid", "nt-hl", "nt-on", "nt-pop", "nt-muni", "nt-munilabel", "nt-rail", "nt-bus", "nt-marks", "nt-pins"]) mapgl.addSource(id, { type: "geojson", data: EMPTY });
+  for (const id of ["nt-prefs", "nt-cells", "nt-grid", "nt-hl", "nt-on", "nt-pop", "nt-muni", "nt-munilabel", "nt-rail", "nt-bus", "nt-marks", "nt-pins", "nt-sel"]) mapgl.addSource(id, { type: "geojson", data: EMPTY });
   const add = (l, below) => mapgl.addLayer(l, below ? beforeId : undefined);
   add({ id: "nt-pref-fill", type: "fill", source: "nt-prefs", paint: { "fill-color": ["get", "fill"], "fill-opacity": ["get", "op"] } }, true);
   add({ id: "nt-grid", type: "line", source: "nt-grid", paint: { "line-color": C("--border"), "line-width": 0.5, "line-opacity": 0.5 } }, true);
@@ -946,6 +946,10 @@ function addOverlay() {
   add({ id: "nt-marks", type: "circle", source: "nt-marks", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 2.5, 9, 6, 12, 10], "circle-color": ["get", "fill"], "circle-stroke-color": ["get", "stroke"], "circle-stroke-width": ["get", "sw"] } });
   add({ id: "nt-marks-text", type: "symbol", source: "nt-marks", minzoom: 9.5, layout: { "text-field": ["get", "mk"], "text-font": textFont, "text-size": 11, "text-allow-overlap": true, "text-ignore-placement": true }, paint: { "text-color": ["get", "tcol"] } });
   add({ id: "nt-pins", type: "circle", source: "nt-pins", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 4.5, 9, 7, 13, 10], "circle-color": ["get", "col"], "circle-stroke-color": C("--panel"), "circle-stroke-width": ["case", ["get", "sel"], 3, 1.5] } });
+  // 選んだ場所（検索・一覧・印から）。おすすめでなくても、地図の対象でなくても必ず出す
+  add({ id: "nt-sel-halo", type: "circle", source: "nt-sel", paint: { "circle-radius": 22, "circle-color": C("--c-top"), "circle-opacity": 0.25, "circle-stroke-color": C("--c-top"), "circle-stroke-width": 1.5 } });
+  add({ id: "nt-sel", type: "circle", source: "nt-sel", paint: { "circle-radius": 12, "circle-color": ["get", "fill"], "circle-stroke-color": C("--ink"), "circle-stroke-width": 3 } });
+  add({ id: "nt-sel-text", type: "symbol", source: "nt-sel", layout: { "text-field": ["get", "mk"], "text-font": textFont, "text-size": 13, "text-allow-overlap": true, "text-ignore-placement": true }, paint: { "text-color": ["get", "tcol"] } });
   add({ id: "nt-pins-text", type: "symbol", source: "nt-pins", minzoom: 9, layout: { "text-field": ["get", "t"], "text-font": textFont, "text-size": 10, "text-allow-overlap": true, "text-ignore-placement": true }, paint: { "text-color": C("--marker-ink") } });
 }
 const setData = (id, data) => mapgl.getSource(id)?.setData(data);
@@ -1006,7 +1010,8 @@ function drawMap(keepZoom) {
   vis("nt-b3d", detail && state.layers.b3d && basemapOk);
   // 場所の印・おすすめ（県の画面）
   setData("nt-marks", EMPTY);
-  if (detail) { const pid = ui.pref; loadPref(pid).then(d => { if (ui.view === "detail" && ui.pref === pid) { drawMarks(map, d); drawPins(); } }).catch(() => toast("この県のデータを読み込めませんでした")); }
+  setData("nt-sel", EMPTY);
+  if (detail) { const pid = ui.pref; loadPref(pid).then(d => { if (ui.view === "detail" && ui.pref === pid) { drawMarks(map, d); drawPins(); drawSel(); } }).catch(() => toast("この県のデータを読み込めませんでした")); }
   drawPins();
   highlightLine();
   // ヒント
@@ -1042,6 +1047,13 @@ function drawPins() { // 行きたい・保留・行った
   const list = myRecords(ui.view === "detail" ? ui.pref : null).filter(inList).sort((a, b) => order[a.k] - order[b.k]);
   setData("nt-pins", fc(list.map(x => ({ type: "Feature", geometry: { type: "Point", coordinates: posOf(x.id, x.r) }, properties: { id: x.id, p: x.r.p, k: x.k, t: PIN[x.k].t, col: cssVar(PIN[x.k].col), sel: ui.spot === x.id } }))));
 }
+function drawSel() { // 選んだ場所の印
+  if (!mapReady) return;
+  const s = ui.view === "detail" && ui.spot ? prefData.get(ui.pref)?.byId.get(ui.spot) : null;
+  if (!s) return setData("nt-sel", EMPTY);
+  const v = !!state.visits[s.id], col = cssVar(`--c-${CATS[s.c].k}`);
+  setData("nt-sel", fc([{ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, mk: CATS[s.c].mk, fill: v ? col : cssVar("--panel"), tcol: v ? cssVar("--marker-ink") : col } }]));
+}
 function setOnCell(c) { if (mapReady) setData("nt-on", c ? fc([{ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: {} }]) : EMPTY); }
 function popCell(c) {
   if (!mapReady || !cellCodes?.has(c)) return;
@@ -1050,7 +1062,7 @@ function popCell(c) {
 }
 // 地図を押した・なぞった（上にあるものから）
 function featureAt(point) {
-  const layers = ["nt-pins", "nt-marks", "nt-cells", "nt-pref-fill"].filter(id => mapgl.getLayer(id) && mapgl.getLayoutProperty(id, "visibility") !== "none");
+  const layers = ["nt-sel", "nt-pins", "nt-marks", "nt-cells", "nt-pref-fill"].filter(id => mapgl.getLayer(id) && mapgl.getLayoutProperty(id, "visibility") !== "none");
   const fs = mapgl.queryRenderedFeatures(point, { layers });
   for (const id of layers) { const f = fs.find(x => x.layer.id === id); if (f) return f; }
   return null;
@@ -1061,7 +1073,8 @@ function bindMapEvents() {
     const f = featureAt(e.point), p = f?.properties, ev = e.originalEvent, map = curMap();
     mapgl.getCanvas().style.cursor = f && (f.layer.id !== "nt-pref-fill" || ui.view !== "detail" || p.id !== ui.pref) ? "pointer" : "";
     if (!f || MOBILE) return hideTip();
-    if (f.layer.id === "nt-pins") { const r = state.visits[p.id] || state.marks[p.id]; if (r) showTip(ev, `<b>${r.top ? "★" : ""}${esc(r.n)}</b>${PIN[p.k].label}${p.k[0] === "v" ? "・" + r.d.replace(/-/g, "/") : ""}・${PREF[r.p]?.name}`); }
+    if (f.layer.id === "nt-sel") { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>選んだ場所・${CATS[s.c].label}`); }
+    else if (f.layer.id === "nt-pins") { const r = state.visits[p.id] || state.marks[p.id]; if (r) showTip(ev, `<b>${r.top ? "★" : ""}${esc(r.n)}</b>${PIN[p.k].label}${p.k[0] === "v" ? "・" + r.d.replace(/-/g, "/") : ""}・${PREF[r.p]?.name}`); }
     else if (f.layer.id === "nt-marks") { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>${p.kind === "pick" ? "このマスのおすすめ・" + esc(whyText(s)) : CATS[s.c].label + (state.visits[s.id] ? "・行った" : "")}`); }
     else if (f.layer.id === "nt-cells" && ui.view === "detail") showTip(ev, `<b>マス ${fmtMesh(p.c)}</b>${p.st ? (p.st === 2 ? "公共交通で塗った" : "車などで塗った") : "まだ塗れる"}・押すと中の場所が出ます`);
     else if (f.layer.id === "nt-pref-fill") {
@@ -1074,6 +1087,7 @@ function bindMapEvents() {
     if (!mapReady) return;
     const f = featureAt(e.point), p = f?.properties, map = curMap();
     if (!f) return;
+    if (f.layer.id === "nt-sel") return flashRow(p.id);
     if (f.layer.id === "nt-pins") return goToSpot(p.p, p.id);
     if (f.layer.id === "nt-marks") {
       const d = prefData.get(ui.pref), s = d?.byId.get(p.id); if (!s) return;
@@ -1415,7 +1429,7 @@ function renderListPanel() {
   panel.querySelectorAll("[data-goto]").forEach(el => el.onclick = () => goToSpot(+el.dataset.p, el.dataset.goto));
   bindRowActions(panel);
 }
-function renderPanel() { ui.view === "list" ? renderListPanel() : ui.view === "over" ? renderOverviewPanel() : renderDetailPanel(); }
+function renderPanel() { ui.view === "list" ? renderListPanel() : ui.view === "over" ? renderOverviewPanel() : renderDetailPanel(); drawSel(); }
 function render(keepZoom) { if (!IDX || !curMap()) return; renderHeader(); drawMap(keepZoom); renderPanel(); }
 
 /* ================= 操作 ================= */
