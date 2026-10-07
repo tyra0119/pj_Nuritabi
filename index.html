@@ -239,6 +239,13 @@ a { color: var(--accent); }
 .deps time { font-family: var(--font-m); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--fill-tr); }
 .deps span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .deps .rt { color: var(--muted); }
+.stop .sn .sk { font-size: 10px; font-weight: 700; color: var(--panel); background: var(--muted); border-radius: 4px; padding: 1px 5px; }
+.stop .lines { color: var(--muted); font-size: 11px; }
+.howto-lead { margin: 0; }
+.dephead { margin: 2px 0 0; font-size: 11px; font-weight: 700; color: var(--muted); }
+.deps.trn li { grid-template-columns: 4.4em minmax(0, 1fr) auto; align-items: baseline; }
+.deps.trn time small { font-size: 10px; font-weight: 400; margin-left: 1px; color: var(--muted); }
+.deps.trn .until { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .linkbtn { border: 0; background: transparent; color: var(--accent); font-size: 11px; padding: 0; text-decoration: underline; }
 .linkbtn:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 .deps .cnt { color: var(--fill-tr); font-weight: 700; font-size: 11px; }
@@ -856,17 +863,22 @@ async function fillHowto(el, s, d) {
     if (st?.refs?.length) {
       try {
         const rs = (await Promise.all(st.refs.slice(0, 4).map(r => departures([r[0], r[1] || st.name], [st.lat, st.lon]).catch(() => null)))).filter(Boolean);
-        if (rs.length) deps = { list: rs.flatMap(r => r.list).sort((a, b) => a.t - b.t).slice(0, 4), sub: rs.some(r => r.sub) };
+        if (rs.length) deps = { list: rs.flatMap(r => r.list).sort((a, b) => a.t - b.t).slice(0, 4), sub: rs.some(r => r.sub), orgs: [...new Set(rs.map(r => (r.org || r.feed || "").replace(/\s*(鉄道|バス)?関連情報$/, "").trim()).filter(Boolean))] };
       } catch (e) { err = true; }
     }
     const warn = st?.lines?.length && info ? st.lines.map(l => ({ l, i: info.get(d.lineIds.get(l)) })).filter(x => x.i && !x.i.normal) : [];
-    return `<div class="stop"><span class="sn">${x.rail || st?.c === CAT_IDX.station ? "駅" : "バス停"} ${esc(name)}<small>${walk}</small></span>
+    // 何の時刻か分かるように: 「〇〇駅から出る次の便」「11:46 発 → 大崎 行き（山手線）・あと 5 分」、時刻表の提供元
+    const isRail = x.rail || st?.c === CAT_IDX.station, kind = isRail ? "駅" : "バス停";
+    const now = jstNow().sec, until = t => { const m = Math.round((t - now) / 60); return m <= 0 ? "まもなく" : m < 60 ? `あと${m}分` : `あと${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ""}`; };
+    const lines = st?.lines?.length ? `<small class="lines">${esc(st.lines.slice(0, 4).join("・"))}${st.lines.length > 4 ? ` ほか${st.lines.length - 4}路線` : ""}</small>` : "";
+    return `<div class="stop"><div class="sn"><span class="sk">${kind}</span><b>${esc(name)}</b><small>${walk ? `この場所まで${walk}` : ""}</small></div>${lines}
       ${warn.map(w => `<div class="tinfo"><b>${esc(w.l)}</b>${esc(w.i.text)}</div>`).join("")}
-      ${deps ? (deps.list.length ? `<ul class="deps">${deps.list.map(v => `<li><time>${hhmm(v.t)}</time><span>${esc(v.to || "")} <span class="rt">${esc(v.route || "")}</span></span></li>`).join("")}</ul>${deps.sub ? `<small class="note">ダイヤの期間外のため、近い日の時刻です</small>` : ""}`
-        : `<small class="note">これから 6 時間の便はありません</small>`)
-        : `<small class="note">${err ? "時刻表を読み込めませんでした" : st?.refs?.length ? "時刻表を読み込めませんでした" : "時刻表のデータがありません"}</small>`}</div>`;
+      ${deps ? (deps.list.length ? `<p class="dephead">${esc(name)}から出る次の便</p><ul class="deps trn">${deps.list.map(v => `<li><time>${hhmm(v.t)}<small>発</small></time><span>${v.to ? `<b>${esc(v.to)}</b> 行き` : "（行き先なし）"}${v.route ? ` <span class="rt">${esc(v.route)}</span>` : ""}</span><small class="until">${until(v.t)}</small></li>`).join("")}</ul>
+          <small class="note">${deps.sub ? "今日はダイヤの期間外なので、近い同じ曜日の時刻です。" : ""}時刻表：${esc(deps.orgs.join("・") || "事業者")}（GTFS）</small>`
+        : `<small class="note">${esc(name)}から、これから 6 時間に出る便はありません。</small>`)
+        : `<small class="note">${err || st?.refs?.length ? "時刻表を読み込めませんでした。" : `この${kind}の時刻表データはありません（公開されていない事業者です）。`}</small>`}</div>`;
   }));
-  el.innerHTML = `<h3>行き方・次の便</h3>${parts.join("")}${cycleHtml(cyc)}<small class="note">時刻表：各事業者の GTFS。運行情報・シェアサイクル：公共交通オープンデータセンター。目安です。台数は予約ではありません。</small>`;
+  el.innerHTML = `<h3>行き方・次の便</h3><p class="note howto-lead">この場所にいちばん近い駅・バス停と、そこから出る次の便（いまから 6 時間、4 本まで）です。帰りの便や、本数の目安に。</p>${parts.join("")}${cycleHtml(cyc)}<small class="note">運行情報・シェアサイクル：公共交通オープンデータセンター。時刻は目安です。台数は予約ではありません。</small>`;
   bindCycles(el);
 }
 function fillHowtos(root, d) { root.querySelectorAll("[data-howto]").forEach(el => { const s = d.byId.get(el.dataset.howto); if (s) fillHowto(el, s, d); }); }
