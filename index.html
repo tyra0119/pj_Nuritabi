@@ -459,7 +459,8 @@ const inMap = (map, s) => map.cats.includes(CATS[s.c].k) || (!!s.top && map.cats
 const TRANSIT = new Set([CAT_IDX.station, CAT_IDX.bus]);
 const SIZES = {
   pref: { label: "都道府県", unit: "県", lvl: "かんたん", desc: "47マス。まずは全部の県に足あとを" },
-  m2:   { label: "10kmマス", unit: "マス", lvl: "ふつう", desc: "約10km四方。県の中をじっくり回る" },
+  mu:   { label: "市区町村", unit: "市区町村", lvl: "ふつう", desc: "全国 約1,900。町や村ごとに足あとを" },
+  m2:   { label: "10kmマス", unit: "マス", lvl: "じっくり", desc: "約10km四方。県の中をじっくり回る" },
   m3:   { label: "1kmマス",  unit: "マス", lvl: "やりこみ", desc: "約1km四方。街歩きや乗りつぶし向け" },
 };
 const REGIONS = [
@@ -537,7 +538,7 @@ function loadBusAll() { // 全国の地図用の路線バス（200 m ほどで�
 const muniData = new Map();
 function loadMuni(pid) { // 市区町村: [[名前, 緯度, 経度, [輪郭（符号化）]]]
   if (!muniData.has(pid)) muniData.set(pid, fetch(`data/m/${String(pid).padStart(2, "0")}.json`).then(r => { if (!r.ok) throw 0; return r.json(); })
-    .then(list => list.map(([name, lat, lon, rings]) => ({ name, lat, lon, rings: rings.map(e => decodeLine(e)) }))).catch(() => []));
+    .then(list => { const l = list.map(([name, lat, lon, rings]) => ({ name, lat, lon, rings: rings.map(e => decodeLine(e)) })); MUNIGEO.set(pid, l); return l; }).catch(() => []));
   return muniData.get(pid);
 }
 const busData = new Map();
@@ -551,9 +552,9 @@ async function loadBus(pid) {
 async function loadPref(pid) {
   if (prefData.has(pid)) return prefData.get(pid);
   const j = await fetch(`data/p/${String(pid).padStart(2, "0")}.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
-  const spots = j.spots.map(([id, name, c, lat, lon, x, top, refs]) => {
+  const spots = j.spots.map(([id, name, c, lat, lon, x, top, refs], i) => {
     const m = meshOf(lat, lon);
-    const s = { id, name, c, lat, lon, ...m, pref: pid, top: !!top, refs: refs || [] };
+    const s = { id, name, c, lat, lon, ...m, pref: pid, top: !!top, refs: refs || [], mu: j.mu ? j.mu[i] : -1 };
     if (c === CAT_IDX.station) s.lines = (x || []).map(i => j.lines[i]);
     else if (x) s.near = x;
     s.reach = TRANSIT.has(c) || (x && ((x[0] && x[1] <= WALK_RAIL) || (x[2] && x[3] <= WALK_BUS)));
@@ -561,7 +562,22 @@ async function loadPref(pid) {
   });
   const d = { spots, byId: new Map(spots.map(s => [s.id, s])), cycles: (j.cycles || []).map(([name, lat, lon, sys, sid]) => ({ name, lat, lon, sys, sid })), lines: j.lines, lineIds: new Map(j.lines.map((l, i) => [l, j.lineIds?.[i] || ""])) };
   prefData.set(pid, d);
+  backfillMu(pid, d);
   return d;
+}
+// 市区町村の単位ができる前の記録には番号が無いので、県のデータを読んだときに補う
+function backfillMu(pid, d) {
+  let n = 0;
+  for (const rec of [...Object.entries(state.visits), ...Object.entries(state.marks)]) {
+    const [id, r] = rec;
+    if (r.p !== pid || r.mu != null) continue;
+    const s = d.byId.get(id); if (s && s.mu >= 0) { r.mu = s.mu; n++; }
+  }
+  if (n) { save(); if (curMap()?.size === "mu") setTimeout(() => { renderHeader(); drawMap(true); if (ui.view === "over") renderOverviewPanel(); }, 0); }
+}
+async function ensureMu() { // 市区町村の地図を開いたとき、番号の無い記録の県を読んでおく
+  const prefs = new Set([...Object.values(state.visits), ...Object.values(state.marks)].filter(r => r.mu == null).map(r => r.p));
+  for (const pid of prefs) { try { await loadPref(pid); } catch (e) {} }
 }
 
 /* ================= 交通（ODPT・GTFS） ================= */
@@ -739,7 +755,7 @@ function lineReach(map, d) {
     if (s.c === CAT_IDX.station) ls = s.lines;
     else if (s.near && s.near[0] && s.near[1] <= WALK_RAIL) ls = [...(stationsOf.get(s.near[0]) || [])];
     if (!ls) continue;
-    const c = cellOf(map.size, { p: s.pref, m3: s.m3 });
+    const c = cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu }); if (!c) continue;
     for (const l of ls) { const o = byLine.get(l) || byLine.set(l, { cells: new Set(), open: new Set(), spots: new Set() }).get(l); o.cells.add(c); o.spots.add(s.id); if (!F.has(c)) o.open.add(c); }
   }
   return [...byLine.entries()].map(([l, o]) => ({ l, ...o })).sort((a, b) => b.open.size - a.open.size || b.cells.size - a.cells.size);
@@ -766,7 +782,8 @@ function picks(map, d) { // マス → おすすめの場所（その地図の�
   const by = new Map();
   for (const s of d.spots) {
     if (!inMap(map, s) || state.visits[s.id] || state.marks[s.id]?.s === "hold") continue;
-    const c = cellOf(map.size, { p: s.pref, m3: s.m3 }), cur = by.get(c);
+    const c = cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu }); if (!c) continue;
+    const cur = by.get(c);
     if (!cur || better(s, cur) < 0) by.set(c, s);
   }
   d.pickKey = key; d.picks = by;
@@ -788,13 +805,15 @@ function targets(map, pid) { // その地図で、県 pid の「塗れるマス�
     const c = IDX.cells[k]?.[pid]; if (!c) continue;
     if (map.size === "pref") { s.add("P" + pid); break; }
     if (map.size === "m2") c.c2.split(",").forEach(x => x && s.add(x));
+    else if (map.size === "mu") (c.mu || "").split(",").forEach(x => x !== "" && s.add(`U${pid}:${x}`));
     else for (const m2 in c.c3) { const t = c.c3[m2]; for (let i = 0; i < t.length; i += 2) s.add(m2 + t.substr(i, 2)); }
   }
   targetCache.set(key, s);
   return s;
 }
 function totalTargets(map) { let n = 0; for (const pid in PREF) n += targets(map, pid).size; return n; }
-const cellOf = (size, v) => size === "pref" ? "P" + v.p : size === "m2" ? v.m3.slice(0, 6) : v.m3;
+const cellOf = (size, v) => size === "pref" ? "P" + v.p : size === "mu" ? (v.mu >= 0 ? `U${v.p}:${v.mu}` : null) : size === "m2" ? v.m3.slice(0, 6) : v.m3;
+const cellName = c => c?.[0] === "U" ? (IDX.munis?.[c.slice(1, c.indexOf(":"))]?.[+c.slice(c.indexOf(":") + 1)] || "市区町村") : c?.[0] === "P" ? PREF[c.slice(1)]?.name : `マス ${fmtMesh(c)}`;
 function filled(map) { // 県 → { all: Map(マス → 公共交通か), touched }
   const by = {};
   for (const id in state.visits) {
@@ -804,7 +823,7 @@ function filled(map) { // 県 → { all: Map(マス → 公共交通か), touche
     P.touched = true;
     if (map.transitOnly && !v.t) continue;
     const c = cellOf(map.size, v);
-    P.all.set(c, P.all.get(c) || !!v.t);
+    if (c) P.all.set(c, P.all.get(c) || !!v.t);
   }
   return by;
 }
@@ -862,6 +881,14 @@ const PIN = { want: { label: "行きたい", t: "行", col: "--c-matsuri" }, hol
 const EMPTY = { type: "FeatureCollection", features: [] };
 const fc = features => ({ type: "FeatureCollection", features });
 const boxPoly = code => { const [x0, y0, x1, y1] = meshBox(code); return [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]; };
+const MUNIGEO = new Map(); // 県 → 市区町村の輪郭（読み込み済み）
+function cellGeom(c) { // マスの形。市区町村は境界（読み込んでいなければ null）
+  if (c[0] !== "U") return { type: "Polygon", coordinates: boxPoly(c) };
+  const pid = +c.slice(1, c.indexOf(":")), m = MUNIGEO.get(pid)?.[+c.slice(c.indexOf(":") + 1)];
+  return m ? { type: "MultiPolygon", coordinates: m.rings.map(r => [r]) } : null;
+}
+const cellFeat = (c, props = {}) => { const g = cellGeom(c); return g ? { type: "Feature", geometry: g, properties: { c, ...props } } : null; };
+const feats = list => fc(list.filter(Boolean));
 function bboxOf(geom) { const [[x0, y0], [x1, y1]] = d3.geoBounds(geom); return [[x0, y0], [x1, y1]]; }
 
 function myRecords(pid) { // 行った場所と、印（行きたい・保留）を付けた場所。pid があればその県だけ
@@ -981,13 +1008,17 @@ function drawMap(keepZoom) {
   if (detail && map.size !== "pref") {
     const F = S.F[ui.pref]?.all || new Map(), T = [...targets(map, ui.pref)];
     cellCodes = new Set(T);
-    setData("nt-cells", fc(T.map(c => ({ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: { c, st: F.has(c) ? (F.get(c) ? 2 : 1) : 0 } }))));
-    setData("nt-grid", fc(P.m2.map(c => ({ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: {} }))));
-  } else if (!detail && map.size !== "pref") { // 全国: 塗ったマスだけ
-    const cells = [];
-    for (const pid in S.F) for (const [c, tr] of S.F[pid].all) cells.push({ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: { c, st: tr ? 2 : 1 } });
-    setData("nt-cells", fc(cells)); setData("nt-grid", EMPTY);
+    const put = () => setData("nt-cells", feats(T.map(c => cellFeat(c, { st: F.has(c) ? (F.get(c) ? 2 : 1) : 0 }))));
+    if (map.size === "mu") { setData("nt-cells", EMPTY); const pid = ui.pref; loadMuni(pid).then(() => { if (ui.view === "detail" && ui.pref === pid && curMap()?.size === "mu") { put(); setOnCell(ui.cell); highlightLine(); } }); }
+    else put();
+    setData("nt-grid", map.size === "mu" ? EMPTY : fc(P.m2.map(c => ({ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: {} }))));
+  } else if (!detail && map.size !== "pref") { // 全国: 塗ったマスだけ（市区町村は、その県の境界を読んでから）
+    const list = []; for (const pid in S.F) for (const [c, tr] of S.F[pid].all) list.push([c, tr, +pid]);
+    const put = () => setData("nt-cells", feats(list.map(([c, tr]) => cellFeat(c, { st: tr ? 2 : 1 }))));
+    put(); setData("nt-grid", EMPTY);
+    if (map.size === "mu") Promise.all([...new Set(list.map(x => x[2]))].map(loadMuni)).then(() => { if (ui.view !== "detail" && curMap()?.size === "mu") put(); });
   } else { setData("nt-cells", EMPTY); setData("nt-grid", EMPTY); }
+  if (map.size === "mu" && [...Object.values(state.visits), ...Object.values(state.marks)].some(r => r.mu == null)) ensureMu();
   setOnCell(detail ? ui.cell : null);
   setData("nt-pop", EMPTY);
   // 路線
@@ -1017,7 +1048,7 @@ function drawMap(keepZoom) {
   // ヒント
   const hint = document.getElementById("hint");
   hint.hidden = !detail;
-  if (detail) hint.textContent = map.size === "pref" ? "一覧から行った場所を選ぶと、県が塗られます。" : "点線のマスに行ける場所があります。マスを押すと中の場所が出ます。";
+  if (detail) hint.textContent = map.size === "pref" ? "一覧から行った場所を選ぶと、県が塗られます。" : map.size === "mu" ? "点線の市区町村に行ける場所があります。押すと中の場所が出ます。" : "点線のマスに行ける場所があります。マスを押すと中の場所が出ます。";
   // カメラ
   if (!keepZoom || firstView) fitView(!firstView);
   firstView = false;
@@ -1054,10 +1085,10 @@ function drawSel() { // 選んだ場所の印
   const v = !!state.visits[s.id], col = cssVar(`--c-${CATS[s.c].k}`);
   setData("nt-sel", fc([{ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: { id: s.id, mk: CATS[s.c].mk, fill: v ? col : cssVar("--panel"), tcol: v ? cssVar("--marker-ink") : col } }]));
 }
-function setOnCell(c) { if (mapReady) setData("nt-on", c ? fc([{ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: {} }]) : EMPTY); }
+function setOnCell(c) { if (mapReady) setData("nt-on", c ? feats([cellFeat(c)]) : EMPTY); }
 function popCell(c) {
   if (!mapReady || !cellCodes?.has(c)) return;
-  setData("nt-pop", fc([{ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: {} }]));
+  setData("nt-pop", feats([cellFeat(c)]));
   setTimeout(() => setData("nt-pop", EMPTY), 900);
 }
 // 地図を押した・なぞった（上にあるものから）
@@ -1076,7 +1107,7 @@ function bindMapEvents() {
     if (f.layer.id === "nt-sel") { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>選んだ場所・${CATS[s.c].label}`); }
     else if (f.layer.id === "nt-pins") { const r = state.visits[p.id] || state.marks[p.id]; if (r) showTip(ev, `<b>${r.top ? "★" : ""}${esc(r.n)}</b>${PIN[p.k].label}${p.k[0] === "v" ? "・" + r.d.replace(/-/g, "/") : ""}・${PREF[r.p]?.name}`); }
     else if (f.layer.id === "nt-marks") { const s = prefData.get(ui.pref)?.byId.get(p.id); if (s) showTip(ev, `<b>${s.top ? "★" : ""}${esc(s.name)}</b>${p.kind === "pick" ? "このマスのおすすめ・" + esc(whyText(s)) : CATS[s.c].label + (state.visits[s.id] ? "・行った" : "")}`); }
-    else if (f.layer.id === "nt-cells" && ui.view === "detail") showTip(ev, `<b>マス ${fmtMesh(p.c)}</b>${p.st ? (p.st === 2 ? "公共交通で塗った" : "車などで塗った") : "まだ塗れる"}・押すと中の場所が出ます`);
+    else if (f.layer.id === "nt-cells" && ui.view === "detail") showTip(ev, `<b>${esc(cellName(p.c))}</b>${p.st ? (p.st === 2 ? "公共交通で塗った" : "車などで塗った") : "まだ塗れる"}・押すと中の場所が出ます`);
     else if (f.layer.id === "nt-pref-fill") {
       if (ui.view === "detail") { if (p.id !== ui.pref) showTip(ev, `<b>${p.name}</b>押すと移動`); else hideTip(); }
       else { const n = summary(map).F[p.id]?.all.size || 0, t = targets(map, p.id).size; showTip(ev, `<b>${p.name}</b>${LV_NAME[level(n, t)]}・${SIZES[map.size].label} ${n}/${t}`); }
@@ -1091,7 +1122,7 @@ function bindMapEvents() {
     if (f.layer.id === "nt-pins") return goToSpot(p.p, p.id);
     if (f.layer.id === "nt-marks") {
       const d = prefData.get(ui.pref), s = d?.byId.get(p.id); if (!s) return;
-      ui.spot = s.id; ui.cell = map.size === "pref" ? null : cellOf(map.size, { p: s.pref, m3: s.m3 });
+      ui.spot = s.id; ui.cell = map.size === "pref" ? null : cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu });
       renderPanel(); setOnCell(ui.cell); drawPins(); flashRow(s.id); return;
     }
     if (f.layer.id === "nt-cells" && ui.view === "detail") { ui.cell = ui.cell === p.c ? null : p.c; ui.spot = null; renderPanel(); setOnCell(ui.cell); return; }
@@ -1159,7 +1190,7 @@ function renderOverviewPanel() {
     </div>
     <div class="sec"><h2>地方ごとの足あと</h2><ul class="bars">${regions}</ul></div>
     <div class="sec"><h2>実績 ${TT.badges.size}/${BADGES.length}</h2><div class="badges">${badges}</div></div>
-    <div class="sec"><h2>行きたい場所 ${wants.length}か所</h2>${wants.length ? `<ul class="list">${wants.slice(0, 12).map(([id, m]) => `<li class="row"><span class="mk cat-${CATS[m.c]?.k}">${CATS[m.c]?.mk}</span><div class="nm" style="cursor:pointer" data-goto="${esc(id)}" data-p="${m.p}"><b>${m.top ? '<span class="star">★</span>' : ""}${esc(m.n)}</b><small>${PREF[m.p]?.name || ""}・マス ${fmtMesh(m.m3.slice(0, 6))}</small></div></li>`).join("")}</ul>${wants.length > 12 ? `<p class="note">ほか ${wants.length - 12}か所</p>` : ""}` : `<p class="note">県の画面で「行きたい」を押すと、ここに集まります。マスのおすすめでも先に出ます。</p>`}${holds ? `<p class="note" style="margin-top:6px">保留 ${holds}か所（おすすめに出しません）</p>` : ""}</div>
+    <div class="sec"><h2>行きたい場所 ${wants.length}か所</h2>${wants.length ? `<ul class="list">${wants.slice(0, 12).map(([id, m]) => `<li class="row"><span class="mk cat-${CATS[m.c]?.k}">${CATS[m.c]?.mk}</span><div class="nm" style="cursor:pointer" data-goto="${esc(id)}" data-p="${m.p}"><b>${m.top ? '<span class="star">★</span>' : ""}${esc(m.n)}</b><small>${PREF[m.p]?.name || ""}・${m.mu != null ? cellName(`U${m.p}:${m.mu}`) : cellName(m.m3.slice(0, 6))}</small></div></li>`).join("")}</ul>${wants.length > 12 ? `<p class="note">ほか ${wants.length - 12}か所</p>` : ""}` : `<p class="note">県の画面で「行きたい」を押すと、ここに集まります。マスのおすすめでも先に出ます。</p>`}${holds ? `<p class="note" style="margin-top:6px">保留 ${holds}か所（おすすめに出しません）</p>` : ""}</div>
     <div class="sec"><h2>最近行った場所</h2>${recent ? `<ul class="list">${recent}</ul>` : `<p class="note">まだありません。地図の県を押して、行った場所を記録してください。</p>`}</div>
     <div class="sec"><h2>おすすめの選び方</h2>
       <p class="note" style="margin-bottom:8px">マスごとに、まだ行っていない場所から1つおすすめします。上にあるものほど優先します。同じ順位なら、駅・バス停から歩ける所、近い所を先にします。</p>
@@ -1259,7 +1290,7 @@ function renderSpotList(d, map, all, selLine) {
       .sort((a, b) => (inMap(map, b) - inMap(map, a)) || (b.top - a.top) || (b.key.startsWith(nq) - a.key.startsWith(nq)) || a.name.length - b.name.length);
   } else list = all;
   if (selLine) list = list.filter(s => selLine.spots.has(s.id));
-  if (ui.cell && !nq) list = list.filter(s => cellOf(map.size, { p: pid, m3: s.m3 }) === ui.cell);
+  if (ui.cell && !nq) list = list.filter(s => cellOf(map.size, { p: pid, m3: s.m3, mu: s.mu }) === ui.cell);
   if (ui.reach) list = list.filter(s => s.reach);
   if (!nq && ui.spot && !list.some(s => s.id === ui.spot)) { const s = d.byId.get(ui.spot); if (s) list = [s, ...list]; }
   const LIMIT = 150, shown = list.slice(0, LIMIT);
@@ -1273,7 +1304,7 @@ function highlightLine() {
   if (!mapReady) return;
   const d = prefData.get(ui.pref), map = curMap();
   const sel = ui.view === "detail" && d && ui.line && lineReach(map, d).find(x => x.l === ui.line);
-  setData("nt-hl", sel ? fc([...sel.cells].filter(c => cellCodes?.has(c)).map(c => ({ type: "Feature", geometry: { type: "Polygon", coordinates: boxPoly(c) }, properties: {} }))) : EMPTY);
+  setData("nt-hl", sel ? feats([...sel.cells].filter(c => cellCodes?.has(c)).map(c => cellFeat(c))) : EMPTY);
 }
 function rowHtml(s) {
   return `<li class="row" data-id="${esc(s.id)}"><span class="mk cat-${CATS[s.c].k}${state.visits[s.id] ? "" : " off"}">${CATS[s.c].mk}</span>
@@ -1313,7 +1344,7 @@ async function renderDetailPanel() {
       <input type="search" id="q" placeholder="名前で探す" value="${esc(ui.q)}" aria-label="名前で探す">
       <label class="check" for="reach"><input type="checkbox" id="reach" ${ui.reach ? "checked" : ""}>駅（${WALK_RAIL / 1000}km）・バス停（${WALK_BUS}m）から歩ける所だけ</label>
     </div>
-    ${ui.cell ? `<div class="filterbar" style="margin-top:8px"><span>マス ${fmtMesh(ui.cell)} の場所</span><button type="button" id="cell-clear">すべて表示</button></div>` : ""}
+    ${ui.cell ? `<div class="filterbar" style="margin-top:8px"><span>${esc(cellName(ui.cell))} の場所</span><button type="button" id="cell-clear">すべて表示</button></div>` : ""}
     ${selSpot && selSpot !== cellPick ? `<div class="reco" style="margin-top:8px"><span class="lbl">選んだ場所</span>${rowHtml(selSpot)}${howtoHtml(selSpot)}</div>` : ""}
     ${cellPick ? `<div class="reco" style="margin-top:8px"><span class="lbl">このマスのおすすめ</span>${rowHtml(cellPick)}<small class="note">${esc(whyText(cellPick))}</small>${howtoHtml(cellPick)}</div>`
       : ui.cell && P1 && F.has(ui.cell) ? `<p class="note" style="margin-top:8px">このマスは塗りました。${F.get(ui.cell) ? "公共交通で行きました。" : ""}</p>` : ""}
@@ -1443,15 +1474,15 @@ function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.g
 function visit(id, byTransit) {
   const s = findSpot(id); if (!s) return;
   const map = curMap(), before = totals(), F0 = filled(map)[s.pref];
-  const cell = cellOf(map.size, { p: s.pref, m3: s.m3 });
+  const cell = cellOf(map.size, { p: s.pref, m3: s.m3, mu: s.mu });
   const wasFilled = F0?.all.has(cell), wasTr = F0?.all.get(cell);
-  state.visits[id] = { d: today(), p: s.pref, m3: s.m3, c: s.c, t: byTransit ? 1 : 0, n: s.name, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
+  state.visits[id] = { d: today(), p: s.pref, m3: s.m3, ...(s.mu >= 0 ? { mu: s.mu } : {}), c: s.c, t: byTransit ? 1 : 0, n: s.name, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
   if (state.marks[id]) { delete state.marks[id]; markVer++; }
   save();
   const after = totals(), F1 = filled(map)[s.pref], msgs = [];
   if (!before.pset.has(s.pref)) msgs.push(`<b>初上陸</b>${PREF[s.pref].name}に足あと`);
   if (map.transitOnly && !byTransit) msgs.push(`<b>記録</b>この地図は公共交通で行った場所だけ塗ります`);
-  else if (!wasFilled) msgs.push(`<b>塗った</b>${map.size === "pref" ? PREF[s.pref].name : "マス " + fmtMesh(cell)}${byTransit ? "（公共交通）" : ""}`);
+  else if (!wasFilled) msgs.push(`<b>塗った</b>${cell ? esc(cellName(cell)) : PREF[s.pref].name}${byTransit ? "（公共交通）" : ""}`);
   else if (byTransit && !wasTr) msgs.push(`<b>塗り替え</b>公共交通の色になりました`);
   const t = targets(map, s.pref).size;
   if (F1 && F1.all.size >= t && (F0?.all.size || 0) < t) msgs.push(`<b>制覇</b>${PREF[s.pref].name}を塗りきりました`);
@@ -1464,12 +1495,12 @@ function visit(id, byTransit) {
 function findSpot(id) { // 読み込んだ県のデータ → 記録（行った・印）の順に探す
   for (const d of prefData.values()) { const s = d.byId.get(id); if (s) return s; }
   const r = state.visits[id] || state.marks[id];
-  return r ? { id, name: r.n, c: r.c, pref: r.p, m3: r.m3, top: !!r.top, ...(r.la ? { lat: r.la, lon: r.lo } : {}) } : null;
+  return r ? { id, name: r.n, c: r.c, pref: r.p, m3: r.m3, mu: r.mu ?? -1, top: !!r.top, ...(r.la ? { lat: r.la, lon: r.lo } : {}) } : null;
 }
 function setMark(id, kind) {
   const s = findSpot(id); if (!s) return;
   if (state.marks[id]?.s === kind) delete state.marks[id];
-  else state.marks[id] = { s: kind, d: today(), p: s.pref, c: s.c, n: s.name, m3: s.m3, ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
+  else state.marks[id] = { s: kind, d: today(), p: s.pref, c: s.c, n: s.name, m3: s.m3, ...(s.mu >= 0 ? { mu: s.mu } : {}), ...(s.top ? { top: 1 } : {}), ...(s.lat ? { la: s.lat, lo: s.lon } : {}) };
   markVer++; save(); rerenderKeep();
   toast(state.marks[id] ? (kind === "want" ? "行きたい場所に入れました。マスのおすすめで先に出ます" : "保留にしました。おすすめに出なくなります") : "印を外しました");
 }
@@ -1513,7 +1544,7 @@ async function goToSpot(pid, id) {
   const s = d.byId.get(id); if (!s) return;
   const map = curMap();
   ui.view = "detail"; ui.pref = pid; ui.q = ""; ui.reach = false; ui.spot = id; ui.line = null;
-  ui.cell = map.size !== "pref" && inMap(map, s) ? cellOf(map.size, { p: pid, m3: s.m3 }) : null;
+  ui.cell = map.size !== "pref" && inMap(map, s) ? cellOf(map.size, { p: pid, m3: s.m3, mu: s.mu }) : null;
   render();
   if (mapReady) mapgl.flyTo({ center: [s.lon, s.lat], zoom: map.size === "m3" ? 14 : 12, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700 });
   if (!inMap(map, s)) toast(`「${CATS[s.c].label}」はこの地図の対象外です。記録すると、${CATS[s.c].label}を含む地図で塗られます`);
@@ -1683,8 +1714,8 @@ function sampleCells() {
 }
 function sizeExample(k) {
   if (!PREF[SAMPLE_PREF]) return "";
-  const n = k === "pref" ? 1 : k === "m2" ? PREF[SAMPLE_PREF].m2.length : sampleCells().length;
-  return `例：神奈川県が ${n.toLocaleString()}マス`;
+  const n = k === "pref" ? 1 : k === "mu" ? (IDX.munis?.[SAMPLE_PREF]?.length || 0) : k === "m2" ? PREF[SAMPLE_PREF].m2.length : sampleCells().length;
+  return `例：神奈川県が ${n.toLocaleString()}${k === "mu" ? "市区町村" : "マス"}`;
 }
 function drawSizePics() {
   const P = PREF[SAMPLE_PREF]; if (!P) return;
@@ -1693,6 +1724,15 @@ function drawSizePics() {
   document.querySelectorAll(".sizepic").forEach(el => {
     const k = el.dataset.pic, g = d3.select(el); g.selectAll("*").remove();
     if (k === "pref") { g.append("path").attr("class", "all").attr("d", path(P.f)); return; }
+    if (k === "mu") { // 市区町村の境界（向きに左右されないよう、点を直接つないで描く）
+      g.append("path").attr("class", "land").attr("d", path(P.f));
+      loadMuni(SAMPLE_PREF).then(list => {
+        list.forEach((m, i) => { const d = m.rings.map(r => "M" + r.map(pt => proj(pt).map(v => v.toFixed(1)).join(",")).join("L") + "Z").join("");
+          g.append("path").attr("d", d).attr("fill", hash(m.name) % 3 === 0 ? "var(--fill-tr)" : "none").attr("stroke", "var(--border)").attr("stroke-width", 0.6); });
+        g.append("path").attr("d", path(P.f)).attr("fill", "none").attr("stroke", "var(--ink)").attr("stroke-width", 1);
+      });
+      return;
+    }
     const id = "sp-" + k;
     g.append("clipPath").attr("id", id).append("path").attr("d", path(P.f));
     g.append("path").attr("class", "land").attr("d", path(P.f));
