@@ -245,6 +245,9 @@ a { color: var(--accent); }
 .backdeps summary { cursor: pointer; font-size: 11px; font-weight: 700; color: var(--muted); padding: 2px 0; }
 .backdeps[open] summary { margin-bottom: 2px; }
 .routebtn { display: block; text-align: center; text-decoration: none; margin-top: 2px; }
+.walkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.walkrow .dir { font-size: 12px; color: var(--ink); margin-right: 2px; }
+.btn.sm { font-size: 11px; padding: 3px 8px; text-decoration: none; }
 .dephead { margin: 2px 0 0; font-size: 11px; font-weight: 700; color: var(--muted); }
 .deps.trn li { grid-template-columns: 4.4em minmax(0, 1fr) auto; align-items: baseline; }
 .deps.trn time small { font-size: 10px; font-weight: 400; margin-left: 1px; color: var(--muted); }
@@ -833,6 +836,26 @@ function cycleHtml(list) {
   return `<div class="stop"><span class="sn">シェアサイクル<small><button type="button" class="linkbtn" data-cyc="1">今の台数を見る</button></small></span>
     <ul class="deps">${list.map(x => { const sys = CYCLE_SYS[x.c.sys]; return `<li data-cport="${x.c.sys}|${esc(x.c.sid)}"><time>${x.dist}m</time><span>${esc(x.c.name)} <span class="rt">${sys.label}${sys.link ? `・<a href="${sys.link(x.c.sid)}" target="_blank" rel="noopener">ポートのページ</a>` : ""}</span> <b class="cnt"></b></span></li>`; }).join("")}</ul></div>`;
 }
+// 駅・バス停から場所への方角（8 方位）と、地図に歩く道すじを出す
+function bearingJa(a, b) { // a, b = [緯度, 経度]。a から見た b の方角
+  const dy = b[0] - a[0], dx = (b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180);
+  const deg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+  return ["北", "北東", "東", "南東", "南", "南西", "西", "北西"][Math.round(deg / 45) % 8];
+}
+let walkFor = null; // 道すじを出している場所の ID（ほかの場所を選んだら消す）
+function showWalk(st, s, label) {
+  if (!mapReady) return;
+  walkFor = s.id;
+  setData("nt-walk", fc([
+    { type: "Feature", geometry: { type: "LineString", coordinates: [[st.lon, st.lat], [s.lon, s.lat]] }, properties: {} },
+    // 丸数字（㉓ など）は地図の字の形（グリフ）が無く、その層ごと描かれなくなる（実機で確認）ので外す
+    { type: "Feature", geometry: { type: "Point", coordinates: [st.lon, st.lat] }, properties: { label: label.replace(/[①-⓿❶-➓㈀-㋿]/g, "").trim() || label } },
+  ]));
+  if (sheetState === "full") setSheet("half");
+  const bar = document.getElementById("catbar"), left = bar.hidden ? 40 : bar.offsetWidth + 40;
+  mapgl.fitBounds([[Math.min(st.lon, s.lon), Math.min(st.lat, s.lat)], [Math.max(st.lon, s.lon), Math.max(st.lat, s.lat)]], { padding: { top: 80, bottom: 50, left, right: 50 }, maxZoom: 17, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 600 });
+}
+function clearWalk() { if (walkFor && mapReady) { walkFor = null; setData("nt-walk", EMPTY); } }
 function bindCycles(el) {
   el.querySelectorAll("[data-cyc]").forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = "読み込んでいます…";
@@ -882,12 +905,21 @@ async function fillHowto(el, s, d) {
           <small class="note">いまから 6 時間、4 本まで。${deps.sub ? "今日はダイヤの期間外なので、近い同じ曜日の時刻です。" : ""}時刻表：${esc(deps.orgs.join("・") || "事業者")}（GTFS）</small></details>`
         : `<small class="note">${esc(name)}から、これから 6 時間に出る便はありません。</small>`)
         : `<small class="note">${err || st?.refs?.length ? "時刻表を読み込めませんでした。" : `この${kind}の時刻表データはありません。`}</small>`;
-    return `<div class="stop"><div class="sn"><span class="sk">${isRail ? "電車" : "バス"}</span><span><b>${esc(name)}</b>で降りて、${walk || "すぐ"}</span></div>${viaTxt}
+    // 降りてから: 方角と距離、地図に道すじ、歩くルート（Google マップ。出発は駅・バス停、行き先は場所）
+    const geo = st?.lat != null && s.lat != null;
+    const dm = geo ? (x.dist || Math.round(Math.hypot((s.lat - st.lat) * 111320, (s.lon - st.lon) * 111320 * Math.cos(s.lat * Math.PI / 180)))) : 0;
+    const dir = geo ? `${esc(name)}から<b>${bearingJa([st.lat, st.lon], [s.lat, s.lon])}</b>へ約${dm >= 1000 ? (dm / 1000).toFixed(1) + "km" : dm + "m"}` : "";
+    const walkBtns = geo ? `<div class="walkrow"><span class="dir">${dir}</span><button type="button" class="btn sm" data-walk="${esc(st.id)}" data-walk-name="${esc(name)}">地図で見る</button><a class="btn sm" href="https://www.google.com/maps/dir/?api=1&origin=${st.lat},${st.lon}&destination=${s.lat},${s.lon}&travelmode=walking" target="_blank" rel="noopener">歩くルート（Google マップ）</a></div>` : "";
+    return `<div class="stop"><div class="sn"><span class="sk">${isRail ? "電車" : "バス"}</span><span><b>${esc(name)}</b>で降りて、${walk || "すぐ"}</span></div>${viaTxt}${walkBtns}
       ${warn.map(w => `<div class="tinfo"><b>${esc(w.l)}</b>${esc(w.i.text)}</div>`).join("")}${back}</div>`;
   }));
   // 今いる場所からの乗り換えは、経路検索に任せる（行き先の座標だけを渡す）
   el.innerHTML = `<h3>ここへの行き方</h3><p class="note howto-lead">近くの駅・バス停で降りて歩きます。乗り換えは「経路を調べる」で。</p>${parts.join("")}${cycleHtml(cyc)}${routeBtn}<small class="note">運行情報・シェアサイクル：公共交通オープンデータセンター。時刻は目安です。台数は予約ではありません。</small>`;
   bindCycles(el);
+  el.querySelectorAll("[data-walk]").forEach(b => b.onclick = () => {
+    const st = stops.find(x => x.stop?.id === b.dataset.walk)?.stop; if (!st) return;
+    showWalk(st, s, b.dataset.walkName);
+  });
 }
 function fillHowtos(root, d) { root.querySelectorAll("[data-howto]").forEach(el => { const s = d.byId.get(el.dataset.howto); if (s) fillHowto(el, s, d); }); }
 
@@ -1114,7 +1146,7 @@ function onStyleLoad() {
 // 重ねる層（下から）: 県の色・格子・マス・市区町村・バス・鉄道 →（背景の地名）→ 3D の建物・選んだマス・名前・印
 function addOverlay() {
   const C = n => cssVar(n);
-  for (const id of ["nt-prefs", "nt-cells", "nt-grid", "nt-hl", "nt-on", "nt-pop", "nt-muni", "nt-munilabel", "nt-rail", "nt-bus", "nt-spots", "nt-marks", "nt-pins", "nt-sel"]) mapgl.addSource(id, { type: "geojson", data: EMPTY });
+  for (const id of ["nt-prefs", "nt-cells", "nt-grid", "nt-hl", "nt-on", "nt-pop", "nt-muni", "nt-munilabel", "nt-rail", "nt-bus", "nt-spots", "nt-marks", "nt-pins", "nt-walk", "nt-sel"]) mapgl.addSource(id, { type: "geojson", data: EMPTY });
   const add = (l, below) => mapgl.addLayer(l, below === "line" ? lineBefore : below ? beforeId : undefined);
   add({ id: "nt-pref-fill", type: "fill", source: "nt-prefs", paint: { "fill-color": ["get", "fill"], "fill-opacity": ["get", "op"] } }, true);
   add({ id: "nt-grid", type: "line", source: "nt-grid", paint: { "line-color": C("--border"), "line-width": 0.5, "line-opacity": 0.5 } }, true);
@@ -1146,6 +1178,10 @@ function addOverlay() {
   add({ id: "nt-marks-text", type: "symbol", source: "nt-marks", minzoom: 9.5, layout: { "text-field": ["get", "mk"], "text-font": textFont, "text-size": 11, "text-allow-overlap": true, "text-ignore-placement": true }, paint: { "text-color": ["get", "tcol"] } });
   add({ id: "nt-pins", type: "circle", source: "nt-pins", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 4.5, 9, 7, 13, 10], "circle-color": ["get", "col"], "circle-stroke-color": C("--panel"), "circle-stroke-width": ["case", ["get", "sel"], 3, 1.5] } });
   // 選んだ場所（検索・一覧・印から）。おすすめでなくても、地図の対象でなくても必ず出す
+  // 駅・バス停から選んだ場所まで歩く道すじ（まっすぐの点線）と、降りる駅・バス停
+  add({ id: "nt-walk-line", type: "line", source: "nt-walk", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round" }, paint: { "line-color": C("--ink"), "line-width": 3, "line-dasharray": [1.5, 1.5] } });
+  add({ id: "nt-walk-stop", type: "circle", source: "nt-walk", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": 8, "circle-color": C("--panel"), "circle-stroke-color": C("--ink"), "circle-stroke-width": 3 } });
+  add({ id: "nt-walk-text", type: "symbol", source: "nt-walk", filter: ["==", ["geometry-type"], "Point"], layout: { "text-field": ["get", "label"], "text-font": textFont, "text-size": 12, "text-offset": [0, 1.4], "text-anchor": "top", "text-allow-overlap": true }, paint: { "text-color": C("--ink"), "text-halo-color": C("--panel"), "text-halo-width": 2 } });
   add({ id: "nt-sel-halo", type: "circle", source: "nt-sel", paint: { "circle-radius": 22, "circle-color": C("--c-top"), "circle-opacity": 0.25, "circle-stroke-color": C("--c-top"), "circle-stroke-width": 1.5 } });
   add({ id: "nt-sel", type: "circle", source: "nt-sel", paint: { "circle-radius": 12, "circle-color": ["get", "fill"], "circle-stroke-color": C("--ink"), "circle-stroke-width": 3 } });
   add({ id: "nt-sel-text", type: "symbol", source: "nt-sel", layout: { "text-field": ["get", "mk"], "text-font": textFont, "text-size": 13, "text-allow-overlap": true, "text-ignore-placement": true }, paint: { "text-color": ["get", "tcol"] } });
@@ -1311,6 +1347,7 @@ function drawPins() { // 行きたい・保留・行った
 }
 function drawSel() { // 選んだ場所の印
   if (!mapReady) return;
+  if (walkFor && walkFor !== ui.spot) clearWalk(); // 歩く道すじは、その場所を選んでいる間だけ
   const sid = ui.spot || ui.hl, s = mapDetail() && sid ? prefData.get(ui.pref)?.byId.get(sid) : null;
   if (!s) return setData("nt-sel", EMPTY);
   const v = !!state.visits[s.id], col = cssVar(`--c-${CATS[s.c].k}`);
