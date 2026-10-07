@@ -502,7 +502,7 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
       <button type="button" class="btn" id="s-cancel">やめる</button>
       <label class="btn file">記録ファイルから復元<input type="file" id="s-restore" accept=".json,application/json"></label>
     </div>
-    <p class="src">データ：国土数値情報（観光資源・道の駅、国土交通省）、公共交通オープンデータセンター、GTFSデータリポジトリほか各事業者・自治体の公開データ。</p>
+    <p class="src">データ：国土数値情報（観光資源・道の駅・文化施設・都市公園、国土交通省）、文化庁「国指定文化財等データベース」、公共交通オープンデータセンター、GTFSデータリポジトリほか各事業者・自治体の公開データ。</p>
   </div>
 </section>
 
@@ -514,18 +514,18 @@ details summary { cursor: pointer; font-size: 12px; color: var(--accent); }
 /* ================= 定義 ================= */
 const CATS = [
   { k: "onsen",   label: "温泉",         mk: "湯", desc: "温泉地・日帰り温泉" },
-  { k: "nature",  label: "自然・絶景",   mk: "景", desc: "山・湖・滝・海岸・花の名所" },
+  { k: "nature",  label: "自然・絶景",   mk: "景", desc: "山・湖・滝・海岸・花の名所・名勝・天然記念物・大きな公園" },
   { k: "matsuri", label: "祭り・行事",   mk: "祭", desc: "祭り・花火・行事。開催日に行こう" },
-  { k: "history", label: "歴史・文化",   mk: "史", desc: "神社・寺・城・町並み・博物館" },
-  { k: "play",    label: "遊び",         mk: "遊", desc: "テーマパーク・動物園・スキー場・海水浴場" },
+  { k: "history", label: "歴史・文化",   mk: "史", desc: "神社・寺・城・史跡・国宝や重要文化財の建物・町並み・博物館・美術館" },
+  { k: "play",    label: "遊び",         mk: "遊", desc: "テーマパーク・動物園・水族館・スキー場・海水浴場・キャンプ場" },
   { k: "gourmet", label: "グルメ・買い物", mk: "食", desc: "物産館・直売所・名物" },
   { k: "michi",   label: "道の駅",       mk: "道", desc: "全国の道の駅" },
   { k: "station", label: "駅",           mk: "駅", desc: "鉄道の駅（いまは関東が中心）" },
   { k: "bus",     label: "バス停",       mk: "停", desc: "路線バスのバス停（全国）" },
 ];
 const CAT_IDX = Object.fromEntries(CATS.map((c, i) => [c.k, i]));
-// 名所: 日本交通公社「観光資源台帳」で評価 A 級以上の観光地。自分の種類と「名所」の両方で塗れる
-const TOP = { k: "top", label: "名所", mk: "★", desc: "評価の高い観光地（日本交通公社「観光資源台帳」A級以上）" };
+// 名所: 日本交通公社「観光資源台帳」で評価 A 級以上の観光地と、国宝の建物・特別史跡・特別名勝・特別天然記念物（文化庁）。自分の種類と「名所」の両方で塗れる
+const TOP = { k: "top", label: "名所", mk: "★", desc: "評価の高い観光地（観光資源台帳 A級以上）と、国宝の建物・特別史跡・特別名勝・特別天然記念物" };
 const catInfo = k => k === "top" ? TOP : CATS[CAT_IDX[k]];
 const inMap = (map, s) => map.cats.includes(CATS[s.c].k) || (!!s.top && map.cats.includes("top"));
 const TRANSIT = new Set([CAT_IDX.station, CAT_IDX.bus]);
@@ -1000,7 +1000,7 @@ function initMap() {
     minZoom: 3, maxZoom: 18, maxPitch: 70,
     pixelRatio: Math.min(devicePixelRatio || 1, MOBILE ? 1.5 : 2), // スマホは描く画素を減らす（BusTracker と同じ）
     localIdeographFontFamily: "'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
-    attributionControl: { compact: true, customAttribution: "国土数値情報（国土交通省）・地球地図日本・公共交通オープンデータセンター・各事業者の GTFS" },
+    attributionControl: { compact: true, customAttribution: "国土数値情報（国土交通省）・文化庁 国指定文化財等データベース・地球地図日本・公共交通オープンデータセンター・各事業者の GTFS" },
   });
   mapgl.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   mapgl.on("style.load", onStyleLoad);
@@ -1389,6 +1389,8 @@ function renderMenuPanel() {
     <div class="sec"><h2>出典</h2>
       <p class="note">地図：<a href="https://www.gsi.go.jp/kankyochiri/gm_jpn.html" target="_blank" rel="noopener">地球地図日本</a>（国土地理院）を <a href="https://github.com/dataofjapan/land" target="_blank" rel="noopener">dataofjapan/land</a> が変換したもの。<br>
       観光地・温泉など：「国土数値情報（観光資源データ）」（国土交通省、2014年）を加工して作成。道の駅：「国土数値情報（道の駅データ）」（国土交通省、2019年1月時点）を加工して作成。<br>
+      博物館・美術館・水族館・動植物園・スキー場・海水浴場・キャンプ場：「国土数値情報（文化施設データ）」（国土交通省、2013年度）を加工して作成。大きな公園：「国土数値情報（都市公園データ）」（国土交通省、2010年）を加工して作成。<br>
+      史跡・名勝・天然記念物・国宝と重要文化財の建造物・重要伝統的建造物群保存地区：出典「国指定文化財等データベース」（文化庁）。名前と位置を使い、同じ境内の建物は 1 か所にまとめています。<br>
       市区町村：「国土数値情報（行政区域データ）」（国土交通省、2025年、CC BY 4.0）を加工して作成。<br>
       駅・バス停・運行情報：出典：公共交通オープンデータセンター。シェアサイクル（ドコモ・バイクシェア、HELLO CYCLING）のポートと台数も公共交通オープンデータセンターから。次の便は、各事業者が公開している GTFS の時刻表から求めた目安です。GTFSデータリポジトリ（gtfs-data.jp）ほか、各事業者・自治体が公開しているデータ。一部は公共交通オープンデータチャレンジ2026の期間限定の利用許諾によるもの。データの正確性は保証されていません。データについて事業者へ問い合わせないでください。</p>
       <details id="srcdet"><summary>交通データの提供元をすべて見る</summary><ol class="srclist" id="srclist"><li>読み込み中…</li></ol></details>
