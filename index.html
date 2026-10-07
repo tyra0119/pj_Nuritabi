@@ -85,7 +85,7 @@ a { color: var(--accent); }
 /* ---- main ---- */
 .main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
 .mapwrap { position: relative; min-height: 0; background: var(--sea); overflow: hidden; }
-#map { display: block; width: 100%; height: 100%; touch-action: none; transform-origin: 0 0; }
+#map { display: block; width: 100%; height: 100%; touch-action: none; transform-origin: 0 0; will-change: transform; } /* 層は作りっぱなしにする（作り直すとスマホでちらつく） */
 .panel { min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 22px; }
 .backbtn { position: absolute; top: 12px; left: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 700; }
 .legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11px; color: var(--muted); max-width: calc(100% - 24px); }
@@ -894,15 +894,20 @@ function rescaleMarks() {
 }
 // 拡大・移動: 動かしている間は SVG を 1 枚の絵として CSS の transform で動かすだけにし（描き直さない）、
 // 止まったら中身（gz）に変換をかけて、くっきり描き直す
-let gzT = d3.zoomIdentity; // いま gz にかかっている変換
+let gzT = d3.zoomIdentity, commitTimer = 0; // いま gz にかかっている変換
+function commitZoom() { // 止まったら中身に変換をかけて描き直す
+  commitTimer = 0;
+  const t = d3.zoomTransform(svg.node());
+  gzT = t; K = t.k; gz.attr("transform", t);
+  svg.node().style.transform = "";
+  lastK = -1; rescaleMarks(); placeMuniLabels();
+}
 const zoom = d3.zoom().scaleExtent([1, 40])
-  .on("start", () => { svg.node().style.willChange = "transform"; })
+  .on("start", () => { clearTimeout(commitTimer); commitTimer = 0; })
   .on("zoom", e => { const t = e.transform, k = t.k / gzT.k; svg.node().style.transform = `translate(${t.x - gzT.x * k}px,${t.y - gzT.y * k}px) scale(${k})`; })
-  .on("end", () => {
-    const t = d3.zoomTransform(svg.node());
-    gzT = t; K = t.k; gz.attr("transform", t);
-    svg.node().style.transform = ""; svg.node().style.willChange = "";
-    lastK = -1; rescaleMarks(); placeMuniLabels();
+  .on("end", e => {
+    // 指を離してすぐまた触るときは描き直さない（0.15 秒止まってから）。プログラムから動かしたときはすぐ
+    if (e.sourceEvent) { clearTimeout(commitTimer); commitTimer = setTimeout(commitZoom, 150); } else commitZoom();
   });
 function sizePicks() { // マスが画面で小さいうちは小さな点、大きくなったら字の入った印
   if (!pickSel) return;
