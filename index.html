@@ -1166,11 +1166,17 @@ function initMap() {
     style: BASE_STYLE[isDark() ? "dark" : "light"],
     bounds: JAPAN, fitBoundsOptions: { padding: 20 },
     minZoom: 3, maxZoom: 18, maxPitch: 70,
+    locale: { "NavigationControl.ZoomIn": "拡大", "NavigationControl.ZoomOut": "縮小", "NavigationControl.ResetBearing": "北を上に", "GeolocateControl.FindMyLocation": "現在地", "GeolocateControl.LocationNotAvailable": "現在地を使えません", "AttributionControl.ToggleAttribution": "出典", "ScrollZoomBlocker.CtrlMessage": "Ctrl を押しながらスクロールで拡大・縮小", "TouchPanBlocker.Message": "2 本の指で地図を動かします" },
     pixelRatio: Math.min(devicePixelRatio || 1, MOBILE ? 1.5 : 2), // スマホは描く画素を減らす（BusTracker と同じ）
     localIdeographFontFamily: "'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
     attributionControl: { compact: true, customAttribution: "国土数値情報（国土交通省）・文化庁 国指定文化財等データベース・地球地図日本・公共交通オープンデータセンター・各事業者の GTFS" },
   });
   mapgl.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  // 現在地（利用者「地図に現在地ボタンを表示して」）。押すと今いる場所に寄り、青い点を出す。位置はこの端末の中だけで使い、どこにも送らない
+  const geo = new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true, timeout: 10000 }, fitBoundsOptions: { maxZoom: 14 }, trackUserLocation: false, showAccuracyCircle: true });
+  mapgl.addControl(geo, "top-right");
+  geo.on("geolocate", () => mapgl.once("idle", () => { if (mapReady) autoView(true); })); // 寄った先の県の画面に（選んだ状態にはしない）。描き終わってから（moveend ではまだ県の形が描かれていない）
+  geo.on("error", e => toast(e.code === 1 ? "現在地を使う許可がありません（ブラウザの設定で許可してください）" : "現在地を取得できませんでした"));
   mapgl.on("style.load", onStyleLoad);
   mapgl.on("error", e => { if (!mapReady) useFallback(); });
   setTimeout(() => { if (!mapReady) useFallback(); }, 8000);
@@ -1475,7 +1481,7 @@ function prefAtCenter() {
   const f = mapgl.queryRenderedFeatures(mapgl.project(mapgl.getCenter()), { layers: ["nt-pref-fill"] })[0];
   return f ? +f.properties.id : null;
 }
-function autoView() {
+function autoView(force) { // force: 現在地ボタンなど、指で動かしていないときも切り替える
   if (selecting || (ui.view !== "over" && ui.view !== "detail")) return;
   const z = mapgl.getZoom(), pid = prefAtCenter();
   if (ui.view === "over") {
@@ -1531,7 +1537,7 @@ function renderOverviewPanel() {
   const regions = REGIONS.map(([name, ids]) => bar(name, ids.filter(i => S.F[i]?.touched).length, ids.length)).join("");
   const badges = BADGES.map(([n, d]) => `<div class="badge${TT.badges.has(n) ? " got" : ""}"><span class="seal">${TT.badges.has(n) ? "印" : "・"}</span><b>${n}</b><small>${d}</small></div>`).join("");
   const recent = Object.entries(state.visits).sort((a, b) => b[1].d.localeCompare(a[1].d)).slice(0, 5)
-    .map(([id, v]) => `<li class="row"><span class="mk cat-${CATS[v.c]?.k}">${CATS[v.c]?.mk}</span><div class="nm" data-goto="${esc(id)}" data-p="${v.p}" role="button" tabindex="0"><b>${esc(v.n)}</b><small>${PREF[v.p]?.name || ""}・${v.d}・${v.t ? "公共交通" : "車など"}</small></div></li>`).join("");
+    .map(([id, v]) => `<li class="row"><span class="mk cat-${CATS[v.c]?.k}">${CATS[v.c]?.mk}</span><div class="nm" data-goto="${esc(id)}" data-p="${v.p}" role="button" tabindex="0"><b>${esc(v.n)}</b><small>${PREF[v.p]?.name || ""}・${v.d.replace(/-/g, "/")}</small></div></li>`).join("");
   panel.innerHTML = `
     <div class="sec ph">
       ${catChips(map.cats)}
