@@ -586,14 +586,35 @@ function meshBox(code) {
 const fmtMesh = c => c.length === 6 ? `${c.slice(0,4)}-${c.slice(4)}` : `${c.slice(0,4)}-${c.slice(4,6)}-${c.slice(6)}`;
 
 /* ================= 状態 ================= */
-const KEY = "nuritabi.v2";
+const KEY = "nuritabi.v2"; // 中身は v3（記録は地図ごと）。前の記録を読めるようキーは変えない
 let state = load();
 function load() {
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.maps) && s.visits) return s; } catch (e) {}
-  return { v: 2, maps: [], cur: null, visits: {} };
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.maps)) return migrate(s); } catch (e) {}
+  return migrate({ v: 3, maps: [], cur: null });
 }
+// 記録（行った visits・行きたい／保留 marks）は地図ごとに持つ（2026-10-07 利用者「『行った』も含めて全部、地図ごとに」）
+// v2 までは全部の地図で共通だった → いまある地図のすべてに写す（見え方を変えないため）。地図が無ければ、次に作る地図に入れる
+function migrate(s) {
+  if (s.visits || s.marks) {
+    const V = s.visits || {}, M = s.marks || {};
+    for (const m of s.maps) { if (!m.visits) m.visits = structuredClone(V); if (!m.marks) m.marks = structuredClone(M); }
+    if (!s.maps.length && (Object.keys(V).length || Object.keys(M).length)) s.pending = { visits: V, marks: M };
+    delete s.visits; delete s.marks;
+  }
+  for (const m of s.maps) { if (!m.visits) m.visits = {}; if (!m.marks) m.marks = {}; }
+  s.v = 3;
+  bindRecords(s);
+  return s;
+}
+// state.visits・state.marks は、いまの地図の記録を指す（保存では地図の中に入る。JSON には出ない）
+const NOMAP = { visits: {}, marks: {} };
+function bindRecords(s) {
+  const cur = () => s.maps.find(m => m.id === s.cur) || NOMAP;
+  Object.defineProperty(s, "visits", { get: () => cur().visits, configurable: true, enumerable: false });
+  Object.defineProperty(s, "marks", { get: () => cur().marks, configurable: true, enumerable: false }); // 行きたい（want）・保留（hold）
+}
+const allRecords = () => state.maps.flatMap(m => [...Object.entries(m.visits), ...Object.entries(m.marks)]);
 if (!Array.isArray(state.prio) || state.prio.length !== PRIO_DEFAULT.length) state.prio = [...PRIO_DEFAULT];
-if (!state.marks || typeof state.marks !== "object") state.marks = {}; // 行きたい（want）・保留（hold）
 let markVer = 0;
 if (!state.layers) state.layers = { rail: true, bus: true };
 if (state.layers.mine === undefined) state.layers.mine = true;
@@ -675,7 +696,7 @@ async function loadPref(pid) {
 // 市区町村の単位ができる前の記録には番号が無いので、県のデータを読んだときに補う
 function backfillMu(pid, d) {
   let n = 0;
-  for (const rec of [...Object.entries(state.visits), ...Object.entries(state.marks)]) {
+  for (const rec of allRecords()) {
     const [id, r] = rec;
     if (r.p !== pid || r.mu != null) continue;
     const s = d.byId.get(id); if (s && s.mu >= 0) { r.mu = s.mu; n++; }
@@ -683,7 +704,7 @@ function backfillMu(pid, d) {
   if (n) { save(); if (curMap()?.size === "mu") setTimeout(() => { renderHeader(); drawMap(true); if (ui.view === "over") renderOverviewPanel(); }, 0); }
 }
 async function ensureMu() { // 市区町村の地図を開いたとき、番号の無い記録の県を読んでおく
-  const prefs = new Set([...Object.values(state.visits), ...Object.values(state.marks)].filter(r => r.mu == null).map(r => r.p));
+  const prefs = new Set(allRecords().map(x => x[1]).filter(r => r.mu == null).map(r => r.p));
   for (const pid of prefs) { try { await loadPref(pid); } catch (e) {} }
 }
 
@@ -884,7 +905,7 @@ function walkDist(s) {
 const isWant = s => state.marks[s.id]?.s === "want";
 const better = (a, b) => (isWant(b) - isWant(a)) || (rankOf(a) - rankOf(b)) || (walkDist(a) - walkDist(b)) || a.name.localeCompare(b.name, "ja");
 function picks(map, d) { // マス → おすすめの場所（その地図の対象のうち、まだ行っていない場所から。全部行ったマスは null）
-  const key = `${map.cats.join(".")}|${map.size}|${state.prio.join(".")}|${Object.keys(state.visits).length}|${markVer}`;
+  const key = `${map.id}|${map.cats.join(".")}|${map.size}|${state.prio.join(".")}|${Object.keys(state.visits).length}|${markVer}`;
   if (d.pickKey === key) return d.picks;
   const by = new Map();
   for (const s of d.spots) {
@@ -1442,7 +1463,7 @@ function renderMenuPanel() {
       <div class="sizeseg2" role="group" aria-label="マスの細かさ">${sizeButtons(map)}</div>
       <div class="btns" style="margin-top:10px"><button type="button" class="btn danger" id="map-del">この地図を消す</button></div>
       <div id="del-area"></div>
-      <p class="note" style="margin-top:6px">地図を消しても、行った記録は消えません。</p>
+      <p class="note" style="margin-top:6px">記録（行った・行きたい・保留）は地図ごとです。地図を消すと、その地図の記録も消えます。</p>
     </div>
     <div class="sec menu-sec"><h2>この地図で塗るもの</h2>
       <p class="note" style="margin-bottom:8px">種類を足したり外したりできます。行った記録はそのままで、塗れるマスと塗ったマスを数え直します。数は全国の場所の数です。</p>
@@ -1508,7 +1529,7 @@ function renderMenuPanel() {
   document.getElementById("bk-file").onchange = e => readRestoreFile(e.target.files[0], document.getElementById("bk-area"));
   panel.querySelectorAll("[data-setsize]").forEach(b => b.onclick = () => setMapSize(b.dataset.setsize));
   document.getElementById("map-del").onclick = () => {
-    document.getElementById("del-area").innerHTML = `<div class="confirm">「${esc(map.name)}」を消しますか。<div class="btns"><button type="button" class="btn danger" id="del-yes">消す</button><button type="button" class="btn" id="del-no">やめる</button></div></div>`;
+    document.getElementById("del-area").innerHTML = `<div class="confirm">「${esc(map.name)}」と、この地図の記録（行った ${Object.keys(map.visits).length}か所・行きたい／保留 ${Object.keys(map.marks).length}か所）を消しますか。元に戻せません。<div class="btns"><button type="button" class="btn danger" id="del-yes">消す</button><button type="button" class="btn" id="del-no">やめる</button></div></div>`;
     document.getElementById("del-no").onclick = () => { document.getElementById("del-area").innerHTML = ""; };
     document.getElementById("del-yes").onclick = () => { state.maps = state.maps.filter(m => m.id !== map.id); state.cur = state.maps[0]?.id || null; save(); toast("地図を消しました"); if (state.maps.length) navTo("map"); else openSetup(); };
   };
@@ -1717,6 +1738,7 @@ function renderListPanel() {
     for (const [pid, rs] of by) body += `<div class="month">${PREF[pid]?.name}<span>${rs.length}か所</span></div><ul class="list">${rs.map(row).join("")}</ul>`;
   } else body = `<ul class="list">${list.map(row).join("")}</ul>`;
   panel.innerHTML = `
+    <p class="note" style="margin-bottom:8px">「${esc(curMap()?.name || "")}」の記録です（記録は地図ごと。ほかの地図は上で切り替え）。</p>
     <div class="ph">
       <div class="tabs" role="tablist">
         <button type="button" role="tab" data-tab="visit" aria-selected="${L.tab === "visit"}">行った ${all.visit.length}</button>
@@ -1895,7 +1917,7 @@ async function goToSpot(pid, id) {
   setSheet("half");
   { const card = panel.querySelector(".selcard"); if (card) panel.scrollTop = card.offsetTop - panel.offsetTop - 8; }
   if (mapReady) mapgl.flyTo({ center: [s.lon, s.lat], zoom: map.size === "m3" ? 14 : 12, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700 });
-  if (!inMap(map, s)) toast(`「${CATS[s.c].label}」はこの地図の対象外です。記録すると、${CATS[s.c].label}を含む地図で塗られます`);
+  if (!inMap(map, s)) toast(`「${CATS[s.c].label}」はこの地図の対象外です。記録はこの地図に残りますが、塗るにはメニューの「この地図で塗るもの」で種類を足してください`);
 }
 // バス停の全国の索引（初めて探すときに読む。県ごとに「名前<TAB>1km メッシュ」）
 let BUSIDX = null, busIdxP = null;
@@ -1943,7 +1965,7 @@ async function selectResult(r) {
 }
 
 /* ================= 記録の保存と復元 ================= */
-function exportText() { return JSON.stringify({ app: "nuritabi", v: 2, saved: new Date().toISOString(), maps: state.maps, cur: state.cur, visits: state.visits, marks: state.marks, prio: state.prio }); }
+function exportText() { return JSON.stringify({ app: "nuritabi", v: 3, saved: new Date().toISOString(), maps: state.maps, cur: state.cur, prio: state.prio }); } // 記録は maps[].visits・marks
 function saveFile() {
   try {
     const blob = new Blob([exportText()], { type: "application/json" });
@@ -1956,15 +1978,17 @@ function saveFile() {
 }
 function parseBackup(text) {
   const j = JSON.parse(text);
-  if (j.app !== "nuritabi" || !Array.isArray(j.maps) || typeof j.visits !== "object") throw new Error("形式が違います");
+  if (j.app !== "nuritabi" || !Array.isArray(j.maps) || (j.v < 3 && typeof j.visits !== "object")) throw new Error("形式が違います");
   return j;
 }
 async function readRestoreFile(file, area) {
   if (!file) return;
   let j; try { j = parseBackup(await file.text()); } catch (e) { toast("ぬりたびの記録ファイルとして読めませんでした"); return; }
-  const doIt = () => { markVer++; state = { v: 2, maps: j.maps, cur: j.cur || j.maps[0]?.id || null, visits: j.visits, marks: j.marks && typeof j.marks === "object" ? j.marks : {}, prio: Array.isArray(j.prio) && j.prio.length === PRIO_DEFAULT.length ? j.prio : [...PRIO_DEFAULT] }; save(); targetCache.clear(); closeSetup(); ui.view = "over"; render(); toast(`記録を復元しました（${Object.keys(j.visits).length}か所）`); };
-  if (!state.maps.length && !Object.keys(state.visits).length) return doIt();
-  area.innerHTML = `<div class="confirm">地図 ${j.maps.length}枚・行った場所 ${Object.keys(j.visits).length}か所（${esc((j.saved || "").slice(0, 10))} 保存）を読み込みます。いまの記録は置き換わります。
+  // v2 のファイル（記録が共通）は、読み込むときに地図ごとへ写す（migrate）
+  const nVisit = new Set([...Object.keys(j.visits || {}), ...j.maps.flatMap(m => Object.keys(m.visits || {}))]).size;
+  const doIt = () => { markVer++; const layers = state.layers; state = migrate({ v: j.v, maps: j.maps, cur: j.cur || j.maps[0]?.id || null, visits: j.visits, marks: j.marks && typeof j.marks === "object" ? j.marks : undefined, prio: Array.isArray(j.prio) && j.prio.length === PRIO_DEFAULT.length ? j.prio : [...PRIO_DEFAULT], layers }); save(); targetCache.clear(); closeSetup(); ui.view = "over"; render(); toast(`記録を復元しました（行った場所 ${nVisit}か所）`); };
+  if (!state.maps.length && !state.pending) return doIt();
+  area.innerHTML = `<div class="confirm">地図 ${j.maps.length}枚・行った場所 ${nVisit}か所（${esc((j.saved || "").slice(0, 10))} 保存）を読み込みます。いまの記録は置き換わります。
     <div class="btns"><button type="button" class="btn danger" id="rs-yes">置き換える</button><button type="button" class="btn" id="rs-no">やめる</button></div></div>`;
   area.querySelector("#rs-yes").onclick = doIt;
   area.querySelector("#rs-no").onclick = () => { area.innerHTML = ""; };
@@ -2117,7 +2141,8 @@ document.getElementById("s-cancel").onclick = closeSetup;
 document.getElementById("s-restore").onchange = e => readRestoreFile(e.target.files[0], document.querySelector(".setup-actions"));
 document.getElementById("s-ok").onclick = () => {
   if (!draft.cats.size || !checkName()) return;
-  const m = { id: "m" + Date.now().toString(36), name: document.getElementById("s-name").value.trim() || uniqueName(autoName()), cats: [TOP, ...CATS].filter(c => draft.cats.has(c.k)).map(c => c.k), size: draft.size, transitOnly: draft.tr, created: today() };
+  const m = { id: "m" + Date.now().toString(36), name: document.getElementById("s-name").value.trim() || uniqueName(autoName()), cats: [TOP, ...CATS].filter(c => draft.cats.has(c.k)).map(c => c.k), size: draft.size, transitOnly: draft.tr, created: today(), visits: {}, marks: {} };
+  if (state.pending) { m.visits = state.pending.visits; m.marks = state.pending.marks; delete state.pending; } // 地図が無いときに残っていた前の記録
   state.maps.push(m); state.cur = m.id;
   for (const id of draft.picks) { // 選んだ行き先は「行きたい」に
     const r = SEARCH?.find(x => x.id === id); if (!r || state.visits[id]) continue;
@@ -2190,7 +2215,7 @@ document.getElementById("ly-spots").onchange = e => { state.layers.spots = e.tar
 document.getElementById("ly-mine").onchange = e => { state.layers.mine = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-muni").onchange = e => { state.layers.muni = e.target.checked; save(); drawMap(true); };
 document.getElementById("ly-b3d").onchange = e => { state.layers.b3d = e.target.checked; save(); drawMap(true); if (mapReady) mapgl.easeTo({ pitch: state.layers.b3d ? 50 : 0, duration: 800 }); };
-document.getElementById("mapsel").onchange = e => { if (e.target.value === "__new") { e.target.value = state.cur; openSetup(); return; } state.cur = e.target.value; save(); render(); };
+document.getElementById("mapsel").onchange = e => { if (e.target.value === "__new") { e.target.value = state.cur; openSetup(); return; } state.cur = e.target.value; markVer++; ui.spot = null; ui.cell = null; ui.hl = null; save(); render(); toast(`「${esc(curMap().name)}」の記録に切り替えました`); };
 document.getElementById("back").onclick = goBack;
 
 boot();
